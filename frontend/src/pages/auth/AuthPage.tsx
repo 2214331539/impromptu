@@ -41,7 +41,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
           </div>
           <div className="mt-10">
             <p className="flex items-center gap-1.5 text-sm font-medium text-accent"><Sparkles className="h-4 w-4" />{mode === "login" ? "欢迎回来" : "认识一下"}</p>
-            <h1 className="mt-2 text-[32px] font-semibold leading-tight sm:text-[36px]">{mode === "login" ? "今天，也大胆开口吧" : "加入声场，开始表达"}</h1>
+            <h1 className="mt-2 text-[32px] font-semibold leading-tight sm:text-[36px]">{mode === "login" ? "今天，也大胆开口吧" : "加入 Impromptu，开始表达"}</h1>
             <p className="mt-3 text-sm leading-6 text-muted">{mode === "register" ? "学生使用 6 位数字学号创建账号，教师账号由系统管理员统一建立。" : "学生使用 6 位数字学号，教师使用学校分配的工号登录。"}</p>
           </div>
           <form className="mt-8 space-y-4" onSubmit={form.handleSubmit((data) => mutation.mutate(data))}>
@@ -49,7 +49,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
             <div><label className="label">{mode === "register" ? "6 位数字学号" : "学号 / 教师工号"}</label><input className="field" autoCapitalize={mode === "register" ? "off" : "characters"} autoComplete="username" inputMode={mode === "register" ? "numeric" : "text"} maxLength={mode === "register" ? 6 : 32} placeholder={mode === "register" ? "例如 250001" : "学生例如 250001；教师输入工号"} {...form.register("student_no")} />{form.formState.errors.student_no && <p className="mt-1 text-xs text-danger">{form.formState.errors.student_no.message}</p>}</div>
             <div><label className="label">密码</label><input className="field" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder="至少 6 位" {...form.register("password")} />{form.formState.errors.password && <p className="mt-1 text-xs text-danger">{form.formState.errors.password.message}</p>}</div>
             {mutation.error && <InlineMessage>{mutation.error.message}</InlineMessage>}
-            <Button type="submit" size="lg" className="w-full" loading={mutation.isPending} icon={<ArrowRight className="h-4 w-4" />}>{mode === "login" ? "进入声场" : "注册并进入"}</Button>
+            <Button type="submit" size="lg" className="w-full" loading={mutation.isPending} icon={<ArrowRight className="h-4 w-4" />}>{mode === "login" ? "进入 Impromptu" : "注册并进入"}</Button>
           </form>
           <p className="mt-6 text-center text-sm text-muted">{mode === "login" ? "还没有账号？" : "已有账号？"}<Link className="ml-1 font-medium text-accent hover:underline" to={mode === "login" ? "/register" : "/login"}>{mode === "login" ? "学生注册" : "返回登录"}</Link></p>
           {mode === "login" && <Link className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted hover:text-ink" to="/admin/login"><ShieldCheck className="h-3.5 w-3.5" />系统管理员入口</Link>}

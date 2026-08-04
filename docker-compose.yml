@@ -26,6 +26,7 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
       UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-20}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       OSS_ENDPOINT: ${OSS_ENDPOINT:-}
       OSS_REGION: ${OSS_REGION:-cn-beijing}
@@ -40,7 +41,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: sh -c "alembic upgrade head && python -m app.db.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: sh -c "alembic upgrade head && if [ \"$$SEED_DEMO_DATA\" = \"true\" ]; then python -m app.db.seed; fi && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
