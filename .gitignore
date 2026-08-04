@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.db
+backend/uploads/*
+!backend/uploads/.gitkeep
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+.DS_Store

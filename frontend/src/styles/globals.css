@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", sans-serif;
+  color: #1d1d1f;
+  background: #f5f5f7;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --canvas: #f5f5f7;
+  --ink: #1d1d1f;
+  --muted: #6e6e73;
+  --accent: #0071e3;
+  --success: #49835b;
+  --warning: #b56a26;
+  --danger: #b44747;
+  --line: rgba(0, 0, 0, 0.08);
+  --surface: rgba(255, 255, 255, 0.78);
+}
+
+* { box-sizing: border-box; }
+html { background: var(--canvas); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--canvas); }
+button, input, textarea, select { font: inherit; }
+button { letter-spacing: 0; }
+::selection { background: rgba(0, 113, 227, 0.18); }
+
+.audio-scrubber {
+  --audio-progress: 0%;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  cursor: pointer;
+  background: transparent;
+}
+.audio-scrubber::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) 0 var(--audio-progress), rgba(0, 0, 0, 0.10) var(--audio-progress) 100%);
+}
+.audio-scrubber::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  appearance: none;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+.audio-scrubber::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.10);
+}
+.audio-scrubber::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.audio-scrubber::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+.audio-scrubber:focus-visible { outline: 2px solid rgba(0, 113, 227, 0.35); outline-offset: 3px; }
+.audio-scrubber:disabled { cursor: default; opacity: 0.55; }
+
+@layer components {
+  .surface {
+    @apply border bg-white/80 shadow-quiet;
+    border-color: var(--line);
+    border-radius: 18px;
+  }
+  .field {
+    @apply w-full border bg-white px-3.5 py-2.5 text-[15px] text-ink outline-none transition;
+    border-color: var(--line);
+    border-radius: 11px;
+  }
+  .field:focus {
+    border-color: rgba(0, 113, 227, 0.55);
+    box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.10);
+  }
+  .label { @apply mb-1.5 block text-[13px] font-medium text-ink; }
+  .page-title { @apply text-[30px] font-semibold leading-tight text-ink sm:text-[36px]; letter-spacing: 0; }
+  .section-title { @apply text-[18px] font-semibold text-ink; letter-spacing: 0; }
+  .subtle-scrollbar { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.15) transparent; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .page-enter { animation: page-enter 420ms cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .draw-reveal { animation: draw-reveal 680ms cubic-bezier(.18,.8,.22,1) both; }
+  @keyframes draw-reveal { 0% { opacity: 0; transform: translateY(18px) scale(.97); } 55% { opacity: .35; } 100% { opacity: 1; transform: none; } }
+}
