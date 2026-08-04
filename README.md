@@ -71,7 +71,7 @@ docker compose up --build
 - OpenAPI（仅本机后端端口）：http://localhost:8000/docs
 - PostgreSQL：仅在 Docker 内网提供，不映射宿主机端口
 
-Docker 前端通过 Nginx 将 `/api` 转发到后端，浏览器不直接访问后端端口。若端口被占用，只需在 `.env` 调整 `BACKEND_PORT` 或 `FRONTEND_PORT`；`VITE_API_URL` 保持 `/api/v1`。
+Docker 前端通过容器内 Nginx 将 `/api` 转发到后端，前后端宿主机端口均只绑定 `127.0.0.1`。生产环境由系统 Nginx 对外开放 80/443 并代理到 `FRONTEND_PORT`，浏览器不直接访问容器端口。若端口被占用，只需在 `.env` 调整 `BACKEND_PORT` 或 `FRONTEND_PORT`；`VITE_API_URL` 保持 `/api/v1`。
 
 停止服务：
 
