@@ -119,10 +119,13 @@ export function AudioPlayer({ src, durationHint = 0, className = "", onReady, on
           ref={audioRef}
           className="sr-only"
           preload="auto"
+          playsInline
           src={resolvedSrc}
-          onLoadedMetadata={syncDuration}
+          onLoadedMetadata={handleReady}
+          onLoadedData={handleReady}
           onDurationChange={syncDuration}
           onCanPlay={handleReady}
+          onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime || 0)}
           onPlay={() => setPlaying(true)}
           onPause={() => { setPlaying(false); setCurrentTime(audioRef.current?.currentTime || 0); }}
           onEnded={() => { setPlaying(false); setCurrentTime(duration); }}

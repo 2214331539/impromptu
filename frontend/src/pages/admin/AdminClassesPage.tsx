@@ -1,0 +1,30 @@
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Copy, Plus, Power, School } from "lucide-react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { api } from "../../api/client";
+import { Badge } from "../../components/common/Badge";
+import { Button } from "../../components/common/Button";
+import { Modal } from "../../components/common/Modal";
+import { EmptyState, ErrorState, InlineMessage, LoadingState } from "../../components/common/States";
+import type { AdminClassRoom, AdminUser } from "../../types";
+
+const schema = z.object({ name: z.string().min(2).max(120), teacher_id: z.coerce.number().int().positive() });
+type Values = z.infer<typeof schema>;
+type InputValues = z.input<typeof schema>;
+
+export function AdminClassesPage() {
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const form = useForm<InputValues, unknown, Values>({ resolver: zodResolver(schema), defaultValues: { name: "", teacher_id: 0 } });
+  const classes = useQuery({ queryKey: ["admin-classes"], queryFn: () => api<AdminClassRoom[]>("/admin/classes") });
+  const teachers = useQuery({ queryKey: ["admin-users", "teacher"], queryFn: () => api<AdminUser[]>("/admin/users?role=teacher") });
+  const create = useMutation({ mutationFn: (values: Values) => api<AdminClassRoom>("/admin/classes", { method: "POST", body: JSON.stringify(values) }), onSuccess: async () => { setOpen(false); form.reset(); await Promise.all([client.invalidateQueries({ queryKey: ["admin-classes"] }), client.invalidateQueries({ queryKey: ["admin-overview"] })]); } });
+  const update = useMutation({ mutationFn: ({ id, values }: { id: number; values: Record<string, string | number | boolean> }) => api<AdminClassRoom>(`/admin/classes/${id}`, { method: "PATCH", body: JSON.stringify(values) }), onSuccess: () => client.invalidateQueries({ queryKey: ["admin-classes"] }) });
+  if (classes.isLoading || teachers.isLoading) return <LoadingState />;
+  if (classes.isError || teachers.isError) return <ErrorState message={classes.error?.message || teachers.error?.message} retry={() => { void classes.refetch(); void teachers.refetch(); }} />;
+  const activeTeachers = (teachers.data || []).filter((teacher) => teacher.is_active);
+  return <div className="page-enter"><header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="page-title">全校班级</h1><p className="mt-2 text-sm text-muted">创建班级、分配负责教师并控制招生状态。</p></div><Button icon={<Plus className="h-4 w-4" />} disabled={!activeTeachers.length} onClick={() => { form.setValue("teacher_id", activeTeachers[0]?.id || 0); setOpen(true); }}>创建班级</Button></header>{classes.data?.length ? <section className="surface overflow-x-auto"><table className="w-full min-w-[820px] text-left"><thead><tr className="border-b border-black/[.06] text-xs text-muted"><th className="px-5 py-3 font-medium">班级</th><th className="px-5 py-3 font-medium">负责教师</th><th className="px-5 py-3 font-medium">邀请码</th><th className="px-5 py-3 font-medium">学生</th><th className="px-5 py-3 font-medium">任务</th><th className="px-5 py-3 font-medium">状态</th><th /></tr></thead><tbody>{classes.data.map((item) => <tr key={item.id} className="border-b border-black/[.05] last:border-0"><td className="px-5 py-4 text-sm font-medium">{item.name}</td><td className="px-5 py-4"><select aria-label={`设置 ${item.name} 的负责教师`} className="h-9 rounded-[10px] border border-black/10 bg-white px-2 text-sm" value={item.teacher_id} disabled={update.isPending} onChange={(event) => update.mutate({ id: item.id, values: { teacher_id: Number(event.target.value) } })}>{activeTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></td><td className="px-5 py-4"><button type="button" title="复制邀请码" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={() => void navigator.clipboard.writeText(item.invite_code)}>{item.invite_code}<Copy className="h-3.5 w-3.5" /></button></td><td className="px-5 py-4 text-sm text-muted">{item.student_count}</td><td className="px-5 py-4 text-sm text-muted">{item.task_count}</td><td className="px-5 py-4"><Badge tone={item.is_active ? "green" : "orange"}>{item.is_active ? "开放" : "停用"}</Badge></td><td className="px-5 py-4 text-right"><button type="button" title={item.is_active ? "停用班级" : "启用班级"} disabled={update.isPending} onClick={() => update.mutate({ id: item.id, values: { is_active: !item.is_active } })} className="grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-black/[.04] hover:text-ink"><Power className="h-4 w-4" /></button></td></tr>)}</tbody></table></section> : <EmptyState title="还没有班级" description={activeTeachers.length ? "创建第一个班级并分配负责教师。" : "请先创建一个教师账号。"} action={activeTeachers.length ? <Button icon={<Plus className="h-4 w-4" />} onClick={() => setOpen(true)}>创建班级</Button> : undefined} />}{update.error && <div className="mt-4"><InlineMessage>{update.error.message}</InlineMessage></div>}<Modal open={open} onClose={() => setOpen(false)} title="创建班级"><form className="space-y-4" onSubmit={form.handleSubmit((values) => create.mutate(values))}><div><label className="label">班级名称</label><input className="field" placeholder="例如 高一英语口语 1 班" {...form.register("name")} /></div><div><label className="label">负责教师</label><select className="field" {...form.register("teacher_id")}><option value={0}>请选择教师</option>{activeTeachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name} · {teacher.student_no}</option>)}</select></div>{create.error && <InlineMessage>{create.error.message}</InlineMessage>}<div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setOpen(false)}>取消</Button><Button type="submit" loading={create.isPending} icon={<School className="h-4 w-4" />}>创建班级</Button></div></form></Modal></div>;
+}

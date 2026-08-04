@@ -22,6 +22,7 @@ from app.db.base import Base, TimestampMixin
 class UserRole(StrEnum):
     STUDENT = "student"
     TEACHER = "teacher"
+    ADMIN = "admin"
 
 
 class TaskStatus(StrEnum):
@@ -31,8 +32,9 @@ class TaskStatus(StrEnum):
 
 
 class SessionPhase(StrEnum):
-    DRAWING = "drawing"
     MIC_CHECK = "mic_check"
+    DRAWING = "drawing"
+    RESEARCHING = "researching"
     PREPARING = "preparing"
     SPEAKING = "speaking"
     REVIEW = "review"
@@ -47,6 +49,9 @@ class Difficulty(StrEnum):
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('STUDENT', 'TEACHER', 'ADMIN')", name="ck_users_role"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     student_no: Mapped[str] = mapped_column(String(32), unique=True, index=True)
@@ -119,6 +124,7 @@ class Topic(Base, TimestampMixin):
 class TrainingTask(Base, TimestampMixin):
     __tablename__ = "training_tasks"
     __table_args__ = (
+        CheckConstraint("research_seconds > 0", name="ck_task_research_positive"),
         CheckConstraint("preparation_seconds > 0", name="ck_task_preparation_positive"),
         CheckConstraint("speaking_seconds > 0", name="ck_task_speaking_positive"),
         Index("ix_tasks_class_status", "class_id", "status"),
@@ -130,6 +136,7 @@ class TrainingTask(Base, TimestampMixin):
     teacher_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
     topic_bank_id: Mapped[int] = mapped_column(ForeignKey("topic_banks.id"), index=True)
+    research_seconds: Mapped[int] = mapped_column(Integer, default=900)
     preparation_seconds: Mapped[int] = mapped_column(Integer)
     speaking_seconds: Mapped[int] = mapped_column(Integer)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -160,8 +167,10 @@ class TrainingSession(Base, TimestampMixin):
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     final_topic_id: Mapped[int | None] = mapped_column(ForeignKey("topics.id"), nullable=True)
     phase: Mapped[SessionPhase] = mapped_column(
-        Enum(SessionPhase, native_enum=False), default=SessionPhase.DRAWING, index=True
+        Enum(SessionPhase, native_enum=False), default=SessionPhase.MIC_CHECK, index=True
     )
+    research_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    research_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preparation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preparation_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     speaking_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -223,6 +232,7 @@ class Recording(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("training_sessions.id", ondelete="CASCADE"), index=True)
+    storage_provider: Mapped[str] = mapped_column(String(16), default="local")
     file_path: Mapped[str] = mapped_column(String(500))
     mime_type: Mapped[str] = mapped_column(String(100))
     size_bytes: Mapped[int] = mapped_column(Integer)

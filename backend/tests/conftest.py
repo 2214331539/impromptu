@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
+from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.models.entities import User, UserRole
 
 # The host image ships legacy Starlette with httpx 0.28. Project dependencies use
 # a compatible FastAPI/Starlette pair, but this keeps local host tests runnable too.
@@ -34,10 +36,13 @@ def db_session(tmp_path) -> Generator[Session, None, None]:
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     db = factory()
+    previous_storage_backend = settings.storage_backend
+    settings.storage_backend = "local"
     settings.upload_dir = str(tmp_path / "uploads")
     try:
         yield db
     finally:
+        settings.storage_backend = previous_storage_backend
         db.close()
         Base.metadata.drop_all(engine)
         engine.dispose()
@@ -54,20 +59,49 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
-def auth_header(client: TestClient, student_no: str, name: str, role: str) -> dict[str, str]:
+def auth_header(client: TestClient, student_no: str, name: str) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/register",
-        json={"student_no": student_no, "name": name, "password": "password123", "role": role},
+        json={"student_no": student_no, "name": name, "password": "password123"},
     )
     assert response.status_code == 201, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+def login_header(client: TestClient, student_no: str, password: str = "password123") -> dict[str, str]:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"student_no": student_no, "password": password},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 @pytest.fixture()
-def course(client: TestClient):
-    teacher = auth_header(client, "T9001", "Teacher", "teacher")
-    student = auth_header(client, "S9001", "Student", "student")
-    other_student = auth_header(client, "S9002", "Other", "student")
+def admin(client: TestClient, db_session: Session) -> dict[str, str]:
+    db_session.add(
+        User(
+            student_no="A9001",
+            name="Admin",
+            password_hash=hash_password("password123"),
+            role=UserRole.ADMIN,
+        )
+    )
+    db_session.commit()
+    return login_header(client, "A9001")
+
+
+@pytest.fixture()
+def course(client: TestClient, admin):
+    teacher_account = client.post(
+        "/api/v1/admin/users",
+        headers=admin,
+        json={"student_no": "T9001", "name": "Teacher", "password": "password123", "role": "teacher"},
+    )
+    assert teacher_account.status_code == 201, teacher_account.text
+    teacher = login_header(client, "T9001")
+    student = auth_header(client, "900001", "Student")
+    other_student = auth_header(client, "900002", "Other")
 
     classroom = client.post("/api/v1/classes", headers=teacher, json={"name": "Test Class"}).json()
     assert client.post(
@@ -101,6 +135,7 @@ def course(client: TestClient):
             "description": "Test the complete flow",
             "class_id": classroom["id"],
             "topic_bank_id": bank["id"],
+            "research_seconds": 10,
             "preparation_seconds": 10,
             "speaking_seconds": 10,
             "starts_at": (now - timedelta(minutes=1)).isoformat(),
@@ -108,7 +143,7 @@ def course(client: TestClient):
             "redraw_limit": 1,
             "rerecord_limit": 1,
             "notes_required": True,
-            "allow_early_finish": True,
+            "allow_early_finish": False,
         },
     )
     assert task.status_code == 201, task.text
@@ -117,6 +152,7 @@ def course(client: TestClient):
     assert published.status_code == 200
     return {
         "teacher": teacher,
+        "admin": admin,
         "student": student,
         "other_student": other_student,
         "classroom": classroom,

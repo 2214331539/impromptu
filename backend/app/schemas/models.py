@@ -18,14 +18,15 @@ class UserOut(APIModel):
 
 
 class RegisterRequest(BaseModel):
-    student_no: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+    model_config = ConfigDict(extra="forbid")
+
+    student_no: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
     name: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=6, max_length=72)
-    role: UserRole = UserRole.STUDENT
 
 
 class LoginRequest(BaseModel):
-    student_no: str
+    student_no: str = Field(min_length=3, max_length=32)
     password: str
 
 
@@ -33,6 +34,60 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     user: UserOut
+
+
+class AdminUserCreate(BaseModel):
+    student_no: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+    name: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=6, max_length=72)
+    role: UserRole
+
+    @model_validator(mode="after")
+    def validate_student_number(self):
+        if self.role == UserRole.STUDENT and not (
+            len(self.student_no) == 6 and self.student_no.isdigit()
+        ):
+            raise ValueError("学生学号必须为 6 位数字")
+        return self
+
+
+class AdminUserUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    password: str | None = Field(default=None, min_length=6, max_length=72)
+    is_active: bool | None = None
+
+
+class AdminUserOut(UserOut):
+    is_active: bool
+    created_at: datetime
+
+
+class AdminOverviewOut(BaseModel):
+    metrics: dict[str, int]
+    recent_users: list[AdminUserOut]
+
+
+class AdminClassCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    teacher_id: int
+
+
+class AdminClassUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    teacher_id: int | None = None
+    is_active: bool | None = None
+
+
+class AdminClassOut(APIModel):
+    id: int
+    name: str
+    invite_code: str
+    is_active: bool
+    teacher_id: int
+    teacher_name: str
+    student_count: int = 0
+    task_count: int = 0
+    created_at: datetime
 
 
 class ClassCreate(BaseModel):
@@ -105,6 +160,7 @@ class TaskCreate(BaseModel):
     description: str = Field(default="", max_length=3000)
     class_id: int
     topic_bank_id: int
+    research_seconds: int = Field(default=900, ge=10, le=7200)
     preparation_seconds: int = Field(ge=10, le=3600)
     speaking_seconds: int = Field(ge=10, le=3600)
     starts_at: datetime
@@ -135,6 +191,7 @@ class TaskOut(APIModel):
     topic_bank_name: str
     teacher_id: int
     teacher_name: str
+    research_seconds: int
     preparation_seconds: int
     speaking_seconds: int
     starts_at: datetime
@@ -207,6 +264,8 @@ class SessionOut(BaseModel):
     current_draw: DrawOut | None
     draw_count: int
     redraws_remaining: int
+    research_started_at: datetime | None
+    research_ends_at: datetime | None
     preparation_started_at: datetime | None
     preparation_ends_at: datetime | None
     speaking_started_at: datetime | None

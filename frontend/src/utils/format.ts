@@ -19,7 +19,7 @@ export function formatClock(seconds: number): string {
 }
 
 export const phaseLabel: Record<SessionPhase, string> = {
-  drawing: "待抽题", mic_check: "试音中", preparing: "准备中", speaking: "演讲中", review: "待提交", submitted: "已提交",
+  mic_check: "试音中", drawing: "待抽题", researching: "搜集中", preparing: "整理中", speaking: "演讲中", review: "待提交", submitted: "已提交",
 };
 export const taskStatusLabel: Record<TaskStatus, string> = { draft: "草稿", published: "进行中", closed: "已关闭" };
 export const difficultyLabel: Record<Difficulty, string> = { easy: "基础", medium: "进阶", hard: "挑战" };

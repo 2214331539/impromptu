@@ -1,0 +1,36 @@
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Power, UserCog } from "lucide-react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { api } from "../../api/client";
+import { Badge } from "../../components/common/Badge";
+import { Button } from "../../components/common/Button";
+import { Modal } from "../../components/common/Modal";
+import { EmptyState, ErrorState, InlineMessage, LoadingState } from "../../components/common/States";
+import { useAuthStore } from "../../stores/auth";
+import type { AdminUser, Role } from "../../types";
+import { formatDate } from "../../utils/format";
+
+const schema = z.object({ student_no: z.string().min(3).max(32), name: z.string().min(2).max(80), password: z.string().min(6).max(72), role: z.enum(["student", "teacher", "admin"]) }).superRefine((values, context) => {
+  if (values.role === "student" && !/^\d{6}$/.test(values.student_no)) context.addIssue({ code: "custom", path: ["student_no"], message: "学生学号必须为 6 位数字" });
+});
+type Values = z.infer<typeof schema>;
+const roleLabel: Record<Role, string> = { student: "学生", teacher: "教师", admin: "管理员" };
+
+export function AdminAccountsPage() {
+  const currentUser = useAuthStore((state) => state.user);
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState<Role | "all">("all");
+  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { student_no: "", name: "", password: "", role: "teacher" } });
+  const selectedRole = form.watch("role");
+  const users = useQuery({ queryKey: ["admin-users"], queryFn: () => api<AdminUser[]>("/admin/users") });
+  const create = useMutation({ mutationFn: (values: Values) => api<AdminUser>("/admin/users", { method: "POST", body: JSON.stringify(values) }), onSuccess: async () => { setOpen(false); form.reset(); await Promise.all([client.invalidateQueries({ queryKey: ["admin-users"] }), client.invalidateQueries({ queryKey: ["admin-overview"] })]); } });
+  const toggle = useMutation({ mutationFn: (user: AdminUser) => api<AdminUser>(`/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ is_active: !user.is_active }) }), onSuccess: () => client.invalidateQueries({ queryKey: ["admin-users"] }) });
+  if (users.isLoading) return <LoadingState />;
+  if (users.isError) return <ErrorState message={users.error.message} retry={() => users.refetch()} />;
+  const visible = (users.data || []).filter((user) => filter === "all" || user.role === filter);
+  return <div className="page-enter"><header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="page-title">账号管理</h1><p className="mt-2 text-sm text-muted">教师与管理员账号只能在这里创建。</p></div><Button icon={<Plus className="h-4 w-4" />} onClick={() => setOpen(true)}>创建账号</Button></header><div className="mb-4 flex items-center gap-2"><label className="text-xs text-muted" htmlFor="role-filter">筛选身份</label><select id="role-filter" className="h-9 rounded-[10px] border border-black/10 bg-white px-3 text-sm" value={filter} onChange={(event) => setFilter(event.target.value as Role | "all")}><option value="all">全部</option><option value="student">学生</option><option value="teacher">教师</option><option value="admin">管理员</option></select></div>{visible.length ? <section className="surface overflow-x-auto"><table className="w-full min-w-[720px] text-left"><thead><tr className="border-b border-black/[.06] text-xs text-muted"><th className="px-5 py-3 font-medium">姓名</th><th className="px-5 py-3 font-medium">账号</th><th className="px-5 py-3 font-medium">身份</th><th className="px-5 py-3 font-medium">创建时间</th><th className="px-5 py-3 font-medium">状态</th><th /></tr></thead><tbody>{visible.map((user) => <tr key={user.id} className="border-b border-black/[.05] last:border-0"><td className="px-5 py-4 text-sm font-medium">{user.name}</td><td className="px-5 py-4 text-sm text-muted">{user.student_no}</td><td className="px-5 py-4"><Badge tone={user.role === "admin" ? "blue" : undefined}>{roleLabel[user.role]}</Badge></td><td className="px-5 py-4 text-sm text-muted">{formatDate(user.created_at)}</td><td className="px-5 py-4"><Badge tone={user.is_active ? "green" : "orange"}>{user.is_active ? "正常" : "已停用"}</Badge></td><td className="px-5 py-4 text-right"><button type="button" title={user.is_active ? "停用账号" : "启用账号"} disabled={toggle.isPending || user.id === currentUser?.id} onClick={() => toggle.mutate(user)} className="grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-black/[.04] hover:text-ink disabled:opacity-30"><Power className="h-4 w-4" /></button></td></tr>)}</tbody></table></section> : <EmptyState title="没有符合条件的账号" description="调整筛选条件或创建新账号。" />}{toggle.error && <div className="mt-4"><InlineMessage>{toggle.error.message}</InlineMessage></div>}<Modal open={open} onClose={() => setOpen(false)} title="创建系统账号"><form className="space-y-4" onSubmit={form.handleSubmit((values) => create.mutate(values))}><div><label className="label">姓名</label><input className="field" {...form.register("name")} /></div><div><label className="label">{selectedRole === "student" ? "6 位数字学号" : "账号 / 工号"}</label><input className="field" autoCapitalize={selectedRole === "student" ? "off" : "characters"} inputMode={selectedRole === "student" ? "numeric" : "text"} maxLength={selectedRole === "student" ? 6 : 32} placeholder={selectedRole === "student" ? "例如 250001" : "输入账号或工号"} {...form.register("student_no")} />{form.formState.errors.student_no && <p className="mt-1 text-xs text-danger">{form.formState.errors.student_no.message}</p>}</div><div><label className="label">初始密码</label><input className="field" type="password" autoComplete="new-password" {...form.register("password")} /></div><div><label className="label">身份</label><select className="field" {...form.register("role")}><option value="teacher">教师</option><option value="admin">管理员</option><option value="student">学生</option></select></div>{create.error && <InlineMessage>{create.error.message}</InlineMessage>}<div className="flex justify-end gap-2"><Button type="button" variant="ghost" onClick={() => setOpen(false)}>取消</Button><Button type="submit" loading={create.isPending} icon={<UserCog className="h-4 w-4" />}>创建账号</Button></div></form></Modal></div>;
+}

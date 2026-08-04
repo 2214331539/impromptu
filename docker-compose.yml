@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-speaking_lab}
       POSTGRES_USER: ${POSTGRES_USER:-speaking}
@@ -12,33 +13,48 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    ports:
-      - "5432:5432"
-
   backend:
     build: ./backend
+    restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://speaking:speaking_local@postgres:5432/speaking_lab}
       JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me-now}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
       UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-20}
-      CORS_ORIGINS: http://localhost:5173
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      OSS_ENDPOINT: ${OSS_ENDPOINT:-}
+      OSS_REGION: ${OSS_REGION:-cn-beijing}
+      OSS_BUCKET_NAME: ${OSS_BUCKET_NAME:-}
+      OSS_BUCKET_DOMAIN: ${OSS_BUCKET_DOMAIN:-}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
+      OSS_RECORDING_PREFIX: ${OSS_RECORDING_PREFIX:-recordings}
+      OSS_TEST_PREFIX: ${OSS_TEST_PREFIX:-connectivity-tests}
     volumes:
       - ./backend/uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
     command: sh -c "alembic upgrade head && python -m app.db.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
 
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api/v1}
+        VITE_API_URL: ${VITE_API_URL:-/api/v1}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-5173}:80"
 

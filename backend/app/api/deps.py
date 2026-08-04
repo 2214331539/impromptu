@@ -46,6 +46,12 @@ def require_student(user: CurrentUser) -> User:
     return user
 
 
+def require_admin(user: CurrentUser) -> User:
+    if user.role != UserRole.ADMIN:
+        raise AppError("FORBIDDEN", "仅系统管理员可执行此操作", 403)
+    return user
+
+
 Teacher = Annotated[User, Depends(require_teacher)]
 Student = Annotated[User, Depends(require_student)]
-
+Admin = Annotated[User, Depends(require_admin)]

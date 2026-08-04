@@ -22,6 +22,7 @@ def task_out(task: TrainingTask, current_user_id: int | None = None) -> TaskOut:
         topic_bank_name=task.topic_bank.name,
         teacher_id=task.teacher_id,
         teacher_name=task.teacher.name,
+        research_seconds=task.research_seconds,
         preparation_seconds=task.preparation_seconds,
         speaking_seconds=task.speaking_seconds,
         starts_at=task.starts_at,
@@ -97,4 +98,3 @@ class TaskService:
         if user.role.value == "student" and task.status == TaskStatus.DRAFT:
             raise AppError("TASK_NOT_FOUND", "任务尚未发布", 404)
         return task
-

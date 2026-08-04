@@ -3,7 +3,7 @@ import { Check, Mic2, RotateCcw, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { RecordingResult } from "../../hooks/useRecorder";
-import { useRecorder } from "../../hooks/useRecorder";
+import { isVirtualAudioDevice, useRecorder } from "../../hooks/useRecorder";
 import type { TrainingSession } from "../../types";
 import { AudioPlayer } from "../common/AudioPlayer";
 import { Badge } from "../common/Badge";
@@ -34,8 +34,8 @@ export function MicCheckStage({ session, recorder, onRefresh }: Props) {
   const signalStartedAtRef = useRef(0);
   const urlRef = useRef<string | null>(null);
 
-  const startPreparation = useMutation({
-    mutationFn: () => api<TrainingSession>(`/sessions/${session.id}/start-preparation`, { method: "POST" }),
+  const completeMicCheck = useMutation({
+    mutationFn: () => api<TrainingSession>(`/sessions/${session.id}/complete-mic-check`, { method: "POST" }),
     onSuccess: onRefresh,
   });
 
@@ -123,7 +123,7 @@ export function MicCheckStage({ session, recorder, onRefresh }: Props) {
       <div className="border-b border-black/[.06] px-7 py-7 text-center sm:px-10">
         <Badge tone="blue">开始前试音</Badge>
         <h1 className="mt-4 text-2xl font-semibold">确认麦克风声音清晰</h1>
-        <p className="mx-auto mt-3 max-w-lg text-sm leading-7 text-muted">录制一段最长 10 秒的声音并回放。确认正常后，准备倒计时才会开始。</p>
+        <p className="mx-auto mt-3 max-w-lg text-sm leading-7 text-muted">录制一段最长 10 秒的声音并回放。确认收音正常后，再进入随机选题。</p>
       </div>
 
       <div className="p-7 text-center sm:p-10">
@@ -144,15 +144,15 @@ export function MicCheckStage({ session, recorder, onRefresh }: Props) {
             {state === "idle" && <p className="mb-4 text-xs text-muted">开始后将使用：{recorder.deviceLabel}</p>}
             {trialUrl && state === "review" && <div className="text-left"><div className="mb-3 flex items-center gap-2 text-sm font-medium"><Check className="h-4 w-4 text-success" />试音录制完成</div><AudioPlayer key={trialUrl} src={trialUrl} durationHint={trialDuration} onReady={() => setPlayable(true)} onError={() => { setPlayable(false); setMessage("录音无法播放，请重新试音"); }} /></div>}
             {message && <p className="rounded-[12px] bg-red-50 px-4 py-3 text-sm text-danger">{message}</p>}
-            {recorder.devices.length > 1 && <label className="mt-5 block text-left text-xs text-muted"><span>输入设备</span><select className="mt-2 h-11 w-full rounded-[11px] border border-black/10 bg-white px-3 text-sm text-ink outline-none focus:border-accent/50" value={recorder.selectedDeviceId} disabled={recorder.permission === "requesting"} onChange={(event) => { setMessage(null); void recorder.selectDevice(event.target.value).catch((error) => setMessage(error instanceof Error ? error.message : "无法切换麦克风")); }}>{recorder.devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `麦克风 ${index + 1}`}</option>)}</select></label>}
+            {recorder.devices.length > 1 && <label className="mt-5 block text-left text-xs text-muted"><span>输入设备</span><select className="mt-2 h-11 w-full rounded-[11px] border border-black/10 bg-white px-3 text-sm text-ink outline-none focus:border-accent/50" value={recorder.selectedDeviceId} disabled={recorder.permission === "requesting"} onChange={(event) => { setMessage(null); void recorder.selectDevice(event.target.value).catch((error) => setMessage(error instanceof Error ? error.message : "无法切换麦克风")); }}>{recorder.devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label ? `${device.label}${isVirtualAudioDevice(device.label) ? "（虚拟设备）" : ""}` : `麦克风 ${index + 1}`}</option>)}</select></label>}
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               <Button size="lg" variant={state === "idle" ? "primary" : "secondary"} icon={state === "idle" ? <Mic2 className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />} loading={recorder.permission === "requesting"} onClick={() => void beginTrial()}>{state === "idle" ? "开始试音" : "重新试音"}</Button>
-              <Button size="lg" disabled={!playable || state !== "review"} loading={startPreparation.isPending} onClick={() => startPreparation.mutate()}>声音正常，进入准备</Button>
+              <Button size="lg" disabled={!playable || state !== "review"} loading={completeMicCheck.isPending} onClick={() => completeMicCheck.mutate()}>声音正常，进入选题</Button>
             </div>
             <p className="mt-4 text-xs text-muted">每次开始或重新试音都会从 10 秒重新计时。</p>
           </div>
         )}
-        {startPreparation.error && <p className="mt-4 text-sm text-danger">{startPreparation.error.message}</p>}
+        {completeMicCheck.error && <p className="mt-4 text-sm text-danger">{completeMicCheck.error.message}</p>}
       </div>
     </section>
   );

@@ -2,8 +2,11 @@ import secrets
 import shutil
 import subprocess
 import uuid
+from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fastapi import UploadFile
 from sqlalchemy import func, select
@@ -34,6 +37,15 @@ from app.schemas.models import (
     TopicOut,
 )
 from app.services.tasks import task_out
+from app.storage import OSSStorage
+
+
+@dataclass(frozen=True)
+class RecordingMedia:
+    body: Iterator[bytes]
+    mime_type: str
+    size_bytes: int
+    filename: str
 
 
 def aware(value: datetime | None) -> datetime | None:
@@ -128,6 +140,16 @@ class TrainingService:
         self.db.expire(session, ["draws"])
         return self._draw_out(session.draws[-1], session.task.redraw_limit)
 
+    def complete_mic_check(self, student: User, session_id: int) -> SessionOut:
+        session = self._student_session(student.id, session_id, lock=True)
+        if session.phase == SessionPhase.DRAWING:
+            return self._out(session)
+        if session.phase != SessionPhase.MIC_CHECK:
+            raise AppError("INVALID_PHASE", "当前不在试音阶段", 409)
+        session.phase = SessionPhase.DRAWING
+        self.db.commit()
+        return self._out(self.sessions.get(session_id))
+
     def confirm_topic(self, student: User, session_id: int) -> SessionOut:
         session = self._student_session(student.id, session_id, lock=True)
         if session.phase != SessionPhase.DRAWING:
@@ -138,7 +160,9 @@ class TrainingService:
         latest.confirmed = True
         session.final_topic_id = latest.topic_id
         now = utc_now()
-        session.phase = SessionPhase.MIC_CHECK
+        session.phase = SessionPhase.RESEARCHING
+        session.research_started_at = now
+        session.research_ends_at = now + timedelta(seconds=session.task.research_seconds)
         session.preparation_started_at = None
         session.preparation_ends_at = None
         if not session.note:
@@ -148,10 +172,13 @@ class TrainingService:
 
     def start_preparation(self, student: User, session_id: int) -> SessionOut:
         session = self._student_session(student.id, session_id, lock=True)
+        if self._reconcile(session):
+            self.db.commit()
+            session = self.sessions.get(session_id)
         if session.phase == SessionPhase.PREPARING:
             return self._out(session)
-        if session.phase != SessionPhase.MIC_CHECK or not session.final_topic_id:
-            raise AppError("INVALID_PHASE", "请先完成试音", 409)
+        if session.phase != SessionPhase.RESEARCHING or not session.final_topic_id:
+            raise AppError("INVALID_PHASE", "请先完成选题和资料搜集", 409)
         now = utc_now()
         session.phase = SessionPhase.PREPARING
         session.preparation_started_at = now
@@ -245,27 +272,56 @@ class TrainingService:
             raise AppError("EMPTY_FILE", "录音文件为空", 400)
         if not self._matches_audio_signature(mime_type, content):
             raise AppError("INVALID_AUDIO_FILE", "文件内容与音频格式不匹配", 415)
+        storage_provider = settings.storage_backend.strip().lower()
+        if storage_provider not in {"local", "oss"}:
+            raise AppError("STORAGE_CONFIGURATION_ERROR", "录音存储配置无效", 503)
+
         upload_dir = Path(settings.upload_dir)
         upload_dir.mkdir(parents=True, exist_ok=True)
-        source_name = f".{uuid.uuid4().hex}.input{self.allowed_mime_types[mime_type]}"
-        source_path = upload_dir / source_name
-        filename = f"{uuid.uuid4().hex}.mp4"
-        target_path = upload_dir / filename
-        source_path.write_bytes(content)
-        if not self._convert_to_mp4(source_path, target_path):
-            source_path.replace(target_path)
-            filename = target_path.name
-            stored_mime_type = mime_type
-            stored_size = len(content)
-        else:
-            source_path.unlink(missing_ok=True)
-            stored_mime_type = "audio/mp4"
-            stored_size = target_path.stat().st_size
+        stored_path = ""
+        stored_local_path: Path | None = None
+        uploaded_object_key: str | None = None
+        with TemporaryDirectory(prefix="recording-", dir=upload_dir) as temp_dir:
+            temp_path = Path(temp_dir)
+            source_path = temp_path / f"source{self.allowed_mime_types[mime_type]}"
+            target_path = temp_path / "recording.mp4"
+            source_path.write_bytes(content)
+            converted = self._convert_to_mp4(source_path, target_path)
+
+            if storage_provider == "oss" and not converted:
+                raise AppError("AUDIO_CONVERSION_UNAVAILABLE", "录音转码失败，请稍后重试", 503)
+
+            if converted:
+                payload_path = target_path
+                filename = f"{uuid.uuid4().hex}.mp4"
+                stored_mime_type = "audio/mp4"
+            else:
+                payload_path = source_path
+                filename = f"{uuid.uuid4().hex}{self.allowed_mime_types[mime_type]}"
+                stored_mime_type = mime_type
+            stored_size = payload_path.stat().st_size
+
+            if storage_provider == "oss":
+                prefix = settings.oss_recording_prefix.strip("/") or "recordings"
+                stored_path = f"{prefix}/{session.id}/{filename}"
+                try:
+                    self._oss_storage().put_bytes(stored_path, payload_path.read_bytes(), stored_mime_type)
+                except AppError:
+                    raise
+                except Exception as error:
+                    raise AppError("OSS_UPLOAD_FAILED", "录音上传到 OSS 失败，请重试", 503) from error
+                uploaded_object_key = stored_path
+            else:
+                stored_local_path = upload_dir / filename
+                payload_path.replace(stored_local_path)
+                stored_path = filename
+
         for old in session.recordings:
             old.is_selected = False
         recording = Recording(
             session_id=session.id,
-            file_path=filename,
+            storage_provider=storage_provider,
+            file_path=stored_path,
             mime_type=stored_mime_type,
             size_bytes=stored_size,
             duration_seconds=duration_seconds,
@@ -273,26 +329,33 @@ class TrainingService:
             is_selected=True,
         )
         self.db.add(recording)
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            if uploaded_object_key:
+                try:
+                    self._oss_storage().delete(uploaded_object_key)
+                except Exception:
+                    pass
+            if stored_local_path:
+                stored_local_path.unlink(missing_ok=True)
+            raise
         self.db.refresh(recording)
         self.db.expire(session, ["recordings"])
         return self._recording_out(recording)
 
-    def download_recording(self, user: User, recording_id: int) -> tuple[Path, str]:
-        recording = self.db.get(Recording, recording_id)
-        if not recording:
-            raise AppError("RECORDING_NOT_FOUND", "录音不存在", 404)
-        session = self.sessions.get(recording.session_id)
-        if not session:
-            raise AppError("RECORDING_NOT_FOUND", "录音不存在", 404)
-        if user.id != session.student_id and user.id != session.task.teacher_id:
-            raise AppError("FORBIDDEN", "无权下载该录音", 403)
+    def download_recording(self, user: User, recording_id: int) -> RecordingMedia:
+        recording = self._recording(user, recording_id)
+        if recording.storage_provider == "oss":
+            if recording.mime_type != "audio/mp4" or not recording.file_path.lower().endswith(".mp4"):
+                raise AppError("AUDIO_CONVERSION_UNAVAILABLE", "当前录音无法生成 MP4 文件", 503)
+            return self._recording_media(recording, f"speaking-{recording.id}.mp4")
+
+        recording, source_path = self._recording_file(user, recording_id)
         upload_dir = Path(settings.upload_dir)
-        source_path = upload_dir / recording.file_path
-        if not source_path.exists():
-            raise AppError("RECORDING_FILE_MISSING", "录音文件不存在", 404)
         if recording.mime_type == "audio/mp4" and source_path.suffix.lower() == ".mp4":
-            return source_path, f"speaking-{recording.id}.mp4"
+            return self._recording_media(recording, f"speaking-{recording.id}.mp4")
         target_path = upload_dir / f"{uuid.uuid4().hex}.mp4"
         if not self._convert_to_mp4(source_path, target_path):
             raise AppError("AUDIO_CONVERSION_UNAVAILABLE", "当前环境无法生成 MP4 录音", 503)
@@ -303,7 +366,69 @@ class TrainingService:
         self.db.commit()
         if old_path != target_path:
             old_path.unlink(missing_ok=True)
-        return target_path, f"speaking-{recording.id}.mp4"
+        return self._recording_media(recording, f"speaking-{recording.id}.mp4")
+
+    def stream_recording(self, user: User, recording_id: int) -> RecordingMedia:
+        recording = self._recording(user, recording_id)
+        suffix = Path(recording.file_path).suffix or self.allowed_mime_types.get(recording.mime_type, "")
+        return self._recording_media(recording, f"recording-{recording.id}{suffix}")
+
+    def _recording_file(self, user: User, recording_id: int) -> tuple[Recording, Path]:
+        recording = self._recording(user, recording_id)
+        if recording.storage_provider != "local":
+            raise AppError("RECORDING_STORAGE_ERROR", "录音存储类型不匹配", 500)
+        upload_dir = Path(settings.upload_dir).resolve()
+        source_path = (upload_dir / recording.file_path).resolve()
+        if upload_dir not in source_path.parents or not source_path.exists():
+            raise AppError("RECORDING_FILE_MISSING", "录音文件不存在", 404)
+        return recording, source_path
+
+    def _recording(self, user: User, recording_id: int) -> Recording:
+        recording = self.db.get(Recording, recording_id)
+        if not recording:
+            raise AppError("RECORDING_NOT_FOUND", "录音不存在", 404)
+        session = self.sessions.get(recording.session_id)
+        if not session:
+            raise AppError("RECORDING_NOT_FOUND", "录音不存在", 404)
+        if user.id != session.student_id and user.id != session.task.teacher_id:
+            raise AppError("FORBIDDEN", "无权下载该录音", 403)
+        return recording
+
+    def _recording_media(self, recording: Recording, filename: str) -> RecordingMedia:
+        if recording.storage_provider == "oss":
+            try:
+                body = self._oss_storage().open_stream(recording.file_path)
+            except AppError:
+                raise
+            except Exception as error:
+                raise AppError("RECORDING_FILE_MISSING", "OSS 录音文件不存在或暂时不可用", 404) from error
+        else:
+            upload_dir = Path(settings.upload_dir).resolve()
+            source_path = (upload_dir / recording.file_path).resolve()
+            if upload_dir not in source_path.parents or not source_path.exists():
+                raise AppError("RECORDING_FILE_MISSING", "录音文件不存在", 404)
+            body = self._file_chunks(source_path)
+        return RecordingMedia(
+            body=body,
+            mime_type=recording.mime_type,
+            size_bytes=recording.size_bytes,
+            filename=filename,
+        )
+
+    @staticmethod
+    def _file_chunks(path: Path, chunk_size: int = 256 * 1024) -> Iterator[bytes]:
+        with path.open("rb") as source:
+            while chunk := source.read(chunk_size):
+                yield chunk
+
+    @staticmethod
+    def _oss_storage() -> OSSStorage:
+        if not settings.oss_configured:
+            raise AppError("OSS_NOT_CONFIGURED", "OSS 录音存储尚未配置", 503)
+        try:
+            return OSSStorage.from_settings(settings)
+        except ValueError as error:
+            raise AppError("OSS_NOT_CONFIGURED", "OSS 录音存储尚未配置", 503) from error
 
     def submit(self, student: User, session_id: int, data: SubmitSessionRequest) -> SessionOut:
         session = self._student_session(student.id, session_id, lock=True)
@@ -375,12 +500,17 @@ class TrainingService:
     def _reconcile(self, session: TrainingSession) -> bool:
         now = utc_now()
         changed = False
-        if session.phase == SessionPhase.PREPARING and now >= aware(session.preparation_ends_at):
-            speaking_start = aware(session.preparation_ends_at)
-            session.phase = SessionPhase.SPEAKING
-            session.speaking_started_at = speaking_start
-            session.speaking_ends_at = speaking_start + timedelta(seconds=session.task.speaking_seconds)
-            session.recording_attempts_started += 1
+        research_ends_at = aware(session.research_ends_at)
+        if (
+            session.phase == SessionPhase.RESEARCHING
+            and research_ends_at is not None
+            and now >= research_ends_at
+        ):
+            session.phase = SessionPhase.PREPARING
+            session.preparation_started_at = research_ends_at
+            session.preparation_ends_at = research_ends_at + timedelta(
+                seconds=session.task.preparation_seconds
+            )
             changed = True
         if session.phase == SessionPhase.SPEAKING and now >= aware(session.speaking_ends_at):
             session.phase = SessionPhase.REVIEW
@@ -401,6 +531,8 @@ class TrainingService:
             current_draw=self._draw_out(latest, session.task.redraw_limit) if latest else None,
             draw_count=len(session.draws),
             redraws_remaining=max(0, session.task.redraw_limit + 1 - len(session.draws)),
+            research_started_at=session.research_started_at,
+            research_ends_at=session.research_ends_at,
             preparation_started_at=session.preparation_started_at,
             preparation_ends_at=session.preparation_ends_at,
             speaking_started_at=session.speaking_started_at,

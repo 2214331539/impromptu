@@ -12,17 +12,29 @@
   --ink: #1d1d1f;
   --muted: #6e6e73;
   --accent: #0071e3;
-  --success: #49835b;
-  --warning: #b56a26;
+  --success: #4f805d;
+  --warning: #a8662c;
   --danger: #b44747;
-  --line: rgba(0, 0, 0, 0.08);
-  --surface: rgba(255, 255, 255, 0.78);
+  --line: rgba(0, 0, 0, 0.09);
+  --surface: rgba(255, 255, 255, 0.86);
 }
 
 * { box-sizing: border-box; }
-html { background: var(--canvas); }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--canvas); }
+html {
+  overflow-x: hidden;
+  background: var(--canvas);
+  scrollbar-gutter: stable;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  background: var(--canvas);
+}
 button, input, textarea, select { font: inherit; }
+button, a { touch-action: manipulation; }
 button { letter-spacing: 0; }
 ::selection { background: rgba(0, 113, 227, 0.18); }
 
@@ -72,9 +84,10 @@ button { letter-spacing: 0; }
 
 @layer components {
   .surface {
-    @apply border bg-white/80 shadow-quiet;
+    @apply border bg-white/90;
     border-color: var(--line);
-    border-radius: 18px;
+    border-radius: 17px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.045);
   }
   .field {
     @apply w-full border bg-white px-3.5 py-2.5 text-[15px] text-ink outline-none transition;
@@ -82,8 +95,8 @@ button { letter-spacing: 0; }
     border-radius: 11px;
   }
   .field:focus {
-    border-color: rgba(0, 113, 227, 0.55);
-    box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.10);
+    border-color: rgba(50, 126, 197, 0.65);
+    box-shadow: 0 0 0 3px rgba(50, 126, 197, 0.11);
   }
   .label { @apply mb-1.5 block text-[13px] font-medium text-ink; }
   .page-title { @apply text-[30px] font-semibold leading-tight text-ink sm:text-[36px]; letter-spacing: 0; }
@@ -91,9 +104,97 @@ button { letter-spacing: 0; }
   .subtle-scrollbar { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,.15) transparent; }
 }
 
+.auth-canvas {
+  position: relative;
+  background: #f5f5f7;
+  overflow: hidden;
+}
+.auth-canvas::before,
+.auth-canvas::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+  border: 2px solid rgba(38, 33, 29, 0.10);
+}
+.auth-canvas::before {
+  width: 100px;
+  height: 38px;
+  left: -24px;
+  top: 13%;
+  border-width: 2px 0 0;
+  transform: rotate(-8deg);
+}
+.auth-canvas::after {
+  width: 84px;
+  height: 84px;
+  right: -38px;
+  bottom: 9%;
+  border-radius: 50%;
+}
+.auth-shell {
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.07);
+}
+.doodle-panel {
+  position: relative;
+  background: #f1f1f3;
+  border-right: 1px solid rgba(0, 0, 0, 0.09);
+}
+.doodle-panel::before {
+  position: absolute;
+  inset: 22px;
+  content: "";
+  border: 1.5px dashed rgba(38, 33, 29, 0.16);
+  border-radius: 22px;
+  pointer-events: none;
+}
+.speech-note {
+  position: relative;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
+}
+.speech-note::after {
+  position: absolute;
+  left: 34px;
+  bottom: -11px;
+  width: 18px;
+  height: 18px;
+  content: "";
+  background: inherit;
+  border-right: 1px solid rgba(0, 0, 0, 0.10);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.10);
+  transform: rotate(45deg);
+}
+
+.app-header { padding-top: env(safe-area-inset-top); }
+.app-main {
+  min-height: 100dvh;
+  padding-top: calc(6rem + env(safe-area-inset-top));
+  padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+}
+.mobile-tabbar { padding-bottom: max(0.4rem, env(safe-area-inset-bottom)); }
+.overflow-x-auto {
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  button { min-height: 44px; }
+}
+
+@supports not (scrollbar-gutter: stable) {
+  body { overflow-y: scroll; }
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .page-enter { animation: page-enter 420ms cubic-bezier(.2,.7,.2,1) both; }
-  @keyframes page-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .page-enter { animation: page-enter 180ms ease-out both; }
+  @keyframes page-enter { from { opacity: 0; } to { opacity: 1; } }
   .draw-reveal { animation: draw-reveal 680ms cubic-bezier(.18,.8,.22,1) both; }
   @keyframes draw-reveal { 0% { opacity: 0; transform: translateY(18px) scale(.97); } 55% { opacity: .35; } 100% { opacity: 1; transform: none; } }
 }

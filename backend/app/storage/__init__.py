@@ -1,2 +1,5 @@
-"""Storage boundary for local uploads and future object storage adapters."""
+"""Storage adapters used by recording persistence and connectivity checks."""
 
+from app.storage.oss import OSSStorage
+
+__all__ = ["OSSStorage"]

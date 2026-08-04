@@ -8,6 +8,17 @@ export interface RecordingResult {
 }
 
 const PREFERRED_DEVICE_KEY = "speaking-lab-audio-input";
+const VIRTUAL_DEVICE_PATTERN = /todesk|virtual|voicemeeter|stereo mix|立体声混音|cable output|blackhole|soundflower|loopback|obs audio/i;
+
+export function isVirtualAudioDevice(label: string): boolean {
+  return VIRTUAL_DEVICE_PATTERN.test(label);
+}
+
+function isPhysicalInput(device: MediaDeviceInfo): boolean {
+  return !!device.label
+    && !["default", "communications"].includes(device.deviceId)
+    && !isVirtualAudioDevice(device.label);
+}
 
 function storedDeviceId(): string {
   try {
@@ -113,14 +124,33 @@ export function useRecorder() {
         setSelectedDeviceId("");
         stream = await openStream();
       }
-      const track = stream.getAudioTracks()[0];
+      streamRef.current = stream;
+      let track = stream.getAudioTracks()[0];
       if (!track) throw new Error("没有检测到可用的麦克风");
+
+      const availableDevices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = availableDevices.filter((item) => item.kind === "audioinput");
+      setDevices(audioInputs);
+      if (!deviceId) {
+        const actualId = track.getSettings().deviceId || "";
+        const actualDevice = audioInputs.find((item) => item.deviceId === actualId);
+        const selectedLooksVirtual = isVirtualAudioDevice(track.label)
+          || (!!actualDevice && isVirtualAudioDevice(actualDevice.label));
+        const savedPhysical = audioInputs.find((item) => item.deviceId === targetDeviceId && isPhysicalInput(item));
+        const preferredPhysical = savedPhysical || audioInputs.find(isPhysicalInput);
+        if (preferredPhysical && preferredPhysical.deviceId !== actualId && (selectedLooksVirtual || !targetDeviceId)) {
+          stream.getTracks().forEach((item) => item.stop());
+          stream = await openStream(preferredPhysical.deviceId);
+          streamRef.current = stream;
+          track = stream.getAudioTracks()[0];
+          if (!track) throw new Error("没有检测到可用的物理麦克风");
+        }
+      }
 
       track.enabled = true;
       track.onmute = () => setInputMuted(true);
       track.onunmute = () => setInputMuted(false);
       track.onended = () => { setInputMuted(true); setPermission("denied"); };
-      streamRef.current = stream;
       setInputMuted(track.muted);
       setDeviceLabel(track.label || "默认麦克风");
       const actualDeviceId = track.getSettings().deviceId || targetDeviceId || "";
@@ -155,8 +185,6 @@ export function useRecorder() {
       };
       readVolume();
 
-      const availableDevices = await navigator.mediaDevices.enumerateDevices();
-      setDevices(availableDevices.filter((item) => item.kind === "audioinput"));
       setPermission("granted");
       return stream;
     } catch (error) {

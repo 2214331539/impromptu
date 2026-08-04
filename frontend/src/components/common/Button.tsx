@@ -28,4 +28,3 @@ export function Button({ variant = "primary", size = "md", loading, icon, classN
     </button>
   );
 }
-

@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
+import { AdminAccountsPage } from "../pages/admin/AdminAccountsPage";
+import { AdminClassesPage } from "../pages/admin/AdminClassesPage";
+import { AdminDashboardPage } from "../pages/admin/AdminDashboardPage";
+import { AdminLoginPage } from "../pages/admin/AdminLoginPage";
 import { AuthPage } from "../pages/auth/AuthPage";
 import { HistoryPage } from "../pages/student/HistoryPage";
 import { StudentDashboard } from "../pages/student/StudentDashboard";
@@ -16,11 +20,12 @@ import { TeacherDashboard } from "../pages/teacher/TeacherDashboard";
 import { TopicsPage } from "../pages/teacher/TopicsPage";
 import { useAuthStore } from "../stores/auth";
 import type { Role } from "../types";
+import { homeForRole } from "../utils/auth";
 
 function Protected({ role, children }: { role: Role; children: ReactNode }) {
   const user = useAuthStore((state) => state.user);
-  if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== role) return <Navigate to={user.role === "teacher" ? "/teacher" : "/app"} replace />;
+  if (!user) return <Navigate to={role === "admin" ? "/admin/login" : "/login"} replace />;
+  if (user.role !== role) return <Navigate to={homeForRole(user.role)} replace />;
   return children;
 }
 
@@ -29,6 +34,7 @@ export function AppRoutes() {
   return <Routes>
     <Route path="/login" element={<AuthPage mode="login" />} />
     <Route path="/register" element={<AuthPage mode="register" />} />
+    <Route path="/admin/login" element={<AdminLoginPage />} />
     <Route element={<Protected role="student"><AppShell /></Protected>}>
       <Route path="/app" element={<StudentDashboard />} />
       <Route path="/app/tasks" element={<TaskListPage />} />
@@ -46,7 +52,11 @@ export function AppRoutes() {
       <Route path="/teacher/tasks/:taskId/submissions" element={<SubmissionsPage />} />
       <Route path="/teacher/evaluations/:sessionId" element={<EvaluationPage />} />
     </Route>
-    <Route path="*" element={<Navigate to={user ? user.role === "teacher" ? "/teacher" : "/app" : "/login"} replace />} />
+    <Route element={<Protected role="admin"><AppShell /></Protected>}>
+      <Route path="/admin" element={<AdminDashboardPage />} />
+      <Route path="/admin/accounts" element={<AdminAccountsPage />} />
+      <Route path="/admin/classes" element={<AdminClassesPage />} />
+    </Route>
+    <Route path="*" element={<Navigate to={user ? homeForRole(user.role) : "/login"} replace />} />
   </Routes>;
 }
-

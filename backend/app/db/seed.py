@@ -63,6 +63,18 @@ def create_demo_wav(path: Path, seconds: float = 2.0) -> None:
 
 def seed() -> None:
     with SessionLocal() as db:
+        admin = db.scalar(select(User).where(User.student_no == "A1001"))
+        if not admin:
+            db.add(
+                User(
+                    student_no="A1001",
+                    name="系统管理员",
+                    password_hash=hash_password("admin123"),
+                    role=UserRole.ADMIN,
+                )
+            )
+            db.commit()
+
         if db.scalar(select(User.id).where(User.student_no == "T1001")):
             print("Seed data already exists; skipping.")
             return
@@ -74,13 +86,13 @@ def seed() -> None:
             role=UserRole.TEACHER,
         )
         student_a = User(
-            student_no="S2025001",
+            student_no="250001",
             name="陈语桐",
             password_hash=hash_password("student123"),
             role=UserRole.STUDENT,
         )
         student_b = User(
-            student_no="S2025002",
+            student_no="250002",
             name="周明远",
             password_hash=hash_password("student123"),
             role=UserRole.STUDENT,
@@ -119,14 +131,15 @@ def seed() -> None:
             teacher_id=teacher.id,
             class_id=classroom.id,
             topic_bank_id=bank.id,
-            preparation_seconds=120,
+            research_seconds=900,
+            preparation_seconds=60,
             speaking_seconds=180,
             starts_at=now - timedelta(days=1),
             due_at=now + timedelta(days=7),
             redraw_limit=1,
             rerecord_limit=1,
             notes_required=True,
-            allow_early_finish=True,
+            allow_early_finish=False,
             status=TaskStatus.PUBLISHED,
         )
         db.add(task)
@@ -137,6 +150,8 @@ def seed() -> None:
             student_id=student_b.id,
             final_topic_id=topic_models[3].id,
             phase=SessionPhase.SUBMITTED,
+            research_started_at=now - timedelta(hours=2, minutes=20),
+            research_ends_at=now - timedelta(hours=2, minutes=5),
             preparation_started_at=now - timedelta(hours=2, minutes=5),
             preparation_ends_at=now - timedelta(hours=2, minutes=3),
             speaking_started_at=now - timedelta(hours=2, minutes=3),

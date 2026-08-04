@@ -38,7 +38,7 @@ export function TaskListPage() {
     {tasks.length ? <div className="grid gap-4 lg:grid-cols-2">{tasks.map((task) => <TaskCard key={task.id} task={task} />)}</div> : <EmptyState title="没有匹配的任务" description="切换筛选条件，或使用教师提供的邀请码加入班级。" />}
     <Modal open={joinOpen} onClose={() => setJoinOpen(false)} title="加入班级">
       <label className="label">班级邀请码</label>
-      <input className="field uppercase tracking-widest" value={inviteCode} maxLength={12} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} placeholder="例如 SPEAK6" autoFocus />
+      <input className="field uppercase tracking-widest" value={inviteCode} maxLength={12} onChange={(event) => setInviteCode(event.target.value.toUpperCase())} placeholder="例如 SPEAK6" />
       {join.error && <div className="mt-3"><InlineMessage>{join.error.message}</InlineMessage></div>}
       <div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onClick={() => setJoinOpen(false)}>取消</Button><Button disabled={inviteCode.length < 4} loading={join.isPending} onClick={() => join.mutate()}>加入</Button></div>
     </Modal>
