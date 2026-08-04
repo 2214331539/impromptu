@@ -14,7 +14,10 @@ services:
       timeout: 5s
       retries: 10
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        DEBIAN_MIRROR_HOST: ${DEBIAN_MIRROR_HOST:-deb.debian.org}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://speaking:speaking_local@postgres:5432/speaking_lab}

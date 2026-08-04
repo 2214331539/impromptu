@@ -2,7 +2,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-RUN apt-get update \
+ARG DEBIAN_MIRROR_HOST=deb.debian.org
+RUN if [ "$DEBIAN_MIRROR_HOST" != "deb.debian.org" ]; then \
+        sed -i "s|deb.debian.org|$DEBIAN_MIRROR_HOST|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
