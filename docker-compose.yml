@@ -18,6 +18,7 @@ services:
       context: ./backend
       args:
         DEBIAN_MIRROR_HOST: ${DEBIAN_MIRROR_HOST:-deb.debian.org}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://speaking:speaking_local@postgres:5432/speaking_lab}
