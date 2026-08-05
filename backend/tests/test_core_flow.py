@@ -76,6 +76,18 @@ def test_admin_creates_managed_accounts_and_controls_access(client: TestClient, 
     )
     assert disabled.status_code == 200
     assert disabled.json()["is_active"] is False
+    created_student = client.post(
+        "/api/v1/admin/users",
+        headers=course["admin"],
+        json={"student_no": "910003", "name": "Removable Student", "password": "password123", "role": "student"},
+    )
+    assert created_student.status_code == 201, created_student.text
+    delete_self = client.delete("/api/v1/admin/users/1", headers=course["admin"])
+    assert delete_self.status_code == 409
+    removed = client.delete(f"/api/v1/admin/users/{created_student.json()['id']}", headers=course["admin"])
+    assert removed.status_code == 204
+    users_after_delete = client.get("/api/v1/admin/users", headers=course["admin"])
+    assert all(item["student_no"] != "910003" for item in users_after_delete.json())
 
 
 def test_random_draw_limit_is_persistent(client: TestClient, course, session):
@@ -253,6 +265,11 @@ def test_new_recording_can_be_stored_and_streamed_from_oss(
 
     storage = MemoryOSS()
     monkeypatch.setattr(TrainingService, "_oss_storage", staticmethod(lambda: storage))
+    monkeypatch.setattr(
+        TrainingService,
+        "_convert_to_mp4",
+        staticmethod(lambda source_path, target_path: target_path.write_bytes(b"\x00\x00\x00\x18ftypmp42") > 0),
+    )
     settings.storage_backend = "oss"
 
     submitted = complete_submission(client, course, session, db_session)

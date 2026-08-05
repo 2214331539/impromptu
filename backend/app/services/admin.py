@@ -1,12 +1,27 @@
 import secrets
 import string
+from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.exceptions import AppError
+from app.core.config import settings
 from app.core.security import hash_password
-from app.models.entities import ClassMember, ClassRoom, TrainingTask, User, UserRole
+from app.models.entities import (
+    ClassMember,
+    ClassRoom,
+    Evaluation,
+    Recording,
+    Topic,
+    TopicBank,
+    TopicDrawRecord,
+    TrainingNote,
+    TrainingSession,
+    TrainingTask,
+    User,
+    UserRole,
+)
 from app.repositories.repositories import UserRepository
 from app.schemas.models import (
     AdminClassCreate,
@@ -75,6 +90,59 @@ class AdminService:
         self.db.commit()
         self.db.refresh(user)
         return AdminUserOut.model_validate(user)
+
+    def delete_user(self, admin: User, user_id: int) -> None:
+        user = self.users.get(user_id)
+        if not user:
+            raise AppError("USER_NOT_FOUND", "账号不存在", 404)
+        if user.id == admin.id:
+            raise AppError("CANNOT_DELETE_SELF", "不能删除当前登录的管理员账号", 409)
+
+        class_ids: list[int] = []
+        bank_ids: list[int] = []
+        task_ids: list[int] = []
+        session_ids: list[int] = []
+
+        if user.role == UserRole.TEACHER:
+            class_ids = list(self.db.scalars(select(ClassRoom.id).where(ClassRoom.teacher_id == user.id)))
+            bank_ids = list(self.db.scalars(select(TopicBank.id).where(TopicBank.teacher_id == user.id)))
+            task_conditions = [TrainingTask.teacher_id == user.id]
+            if class_ids:
+                task_conditions.append(TrainingTask.class_id.in_(class_ids))
+            if bank_ids:
+                task_conditions.append(TrainingTask.topic_bank_id.in_(bank_ids))
+            task_ids = list(self.db.scalars(select(TrainingTask.id).where(or_(*task_conditions))))
+
+        if user.role == UserRole.STUDENT:
+            session_ids.extend(
+                self.db.scalars(select(TrainingSession.id).where(TrainingSession.student_id == user.id))
+            )
+
+        if task_ids:
+            session_ids.extend(
+                self.db.scalars(select(TrainingSession.id).where(TrainingSession.task_id.in_(task_ids)))
+            )
+        session_ids = list(dict.fromkeys(session_ids))
+
+        self._delete_recording_files(session_ids)
+        self._delete_session_tree(session_ids)
+
+        if user.role == UserRole.STUDENT:
+            self.db.execute(delete(ClassMember).where(ClassMember.student_id == user.id))
+
+        if user.role == UserRole.TEACHER:
+            self.db.execute(delete(Evaluation).where(Evaluation.teacher_id == user.id))
+            if task_ids:
+                self.db.execute(delete(TrainingTask).where(TrainingTask.id.in_(task_ids)))
+            if class_ids:
+                self.db.execute(delete(ClassMember).where(ClassMember.class_id.in_(class_ids)))
+                self.db.execute(delete(ClassRoom).where(ClassRoom.id.in_(class_ids)))
+            if bank_ids:
+                self.db.execute(delete(Topic).where(Topic.bank_id.in_(bank_ids)))
+                self.db.execute(delete(TopicBank).where(TopicBank.id.in_(bank_ids)))
+
+        self.db.delete(user)
+        self.db.commit()
 
     def list_classes(self) -> list[AdminClassOut]:
         classes = self.db.scalars(
@@ -156,3 +224,38 @@ class AdminService:
 
     def _count(self, column, *conditions) -> int:
         return self.db.scalar(select(func.count(column)).where(*conditions)) or 0
+
+    def _delete_session_tree(self, session_ids: list[int]) -> None:
+        if not session_ids:
+            return
+        self.db.execute(delete(Evaluation).where(Evaluation.session_id.in_(session_ids)))
+        self.db.execute(delete(Recording).where(Recording.session_id.in_(session_ids)))
+        self.db.execute(delete(TrainingNote).where(TrainingNote.session_id.in_(session_ids)))
+        self.db.execute(delete(TopicDrawRecord).where(TopicDrawRecord.session_id.in_(session_ids)))
+        self.db.execute(delete(TrainingSession).where(TrainingSession.id.in_(session_ids)))
+
+    def _delete_recording_files(self, session_ids: list[int]) -> None:
+        if not session_ids:
+            return
+        recordings = list(self.db.scalars(select(Recording).where(Recording.session_id.in_(session_ids))))
+        for recording in recordings:
+            if recording.storage_provider == "oss":
+                self._delete_oss_object(recording.file_path)
+            else:
+                path = Path(recording.file_path)
+                if not path.is_absolute():
+                    path = Path(settings.upload_dir) / path.name
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _delete_oss_object(self, object_key: str) -> None:
+        if settings.storage_backend != "oss":
+            return
+        try:
+            from app.storage import OSSStorage
+
+            OSSStorage.from_settings(settings).delete(object_key)
+        except Exception:
+            pass

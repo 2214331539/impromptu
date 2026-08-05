@@ -87,6 +87,12 @@ def admin_update_user(user_id: int, data: AdminUserUpdate, admin: Admin, db: DB)
     return AdminService(db).update_user(admin, user_id, data)
 
 
+@router.delete("/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_user(user_id: int, admin: Admin, db: DB):
+    AdminService(db).delete_user(admin, user_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/admin/classes", response_model=list[AdminClassOut])
 def admin_classes(_: Admin, db: DB):
     return AdminService(db).list_classes()
