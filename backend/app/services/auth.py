@@ -6,7 +6,7 @@ from app.core.exceptions import AppError
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.entities import User, UserRole
 from app.repositories.repositories import UserRepository
-from app.schemas.models import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from app.schemas.models import ChangePasswordRequest, LoginRequest, RegisterRequest, TokenResponse, UserOut
 
 
 class AuthService:
@@ -38,6 +38,14 @@ class AuthService:
         if user.role != UserRole.ADMIN:
             raise AppError("ADMIN_REQUIRED", "该账号不是系统管理员", 403)
         return self._token(user)
+
+    def change_password(self, user: User, data: ChangePasswordRequest) -> None:
+        if not verify_password(data.current_password, user.password_hash):
+            raise AppError("INVALID_CURRENT_PASSWORD", "Current password is incorrect", 400)
+        if data.current_password == data.new_password:
+            raise AppError("PASSWORD_UNCHANGED", "New password must be different", 400)
+        user.password_hash = hash_password(data.new_password)
+        self.db.commit()
 
     def _authenticate(self, data: LoginRequest) -> User:
         user = self.users.by_student_no(data.student_no.strip().upper())

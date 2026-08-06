@@ -30,6 +30,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=6, max_length=72)
+    new_password: str = Field(min_length=6, max_length=72)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
@@ -55,6 +60,10 @@ class AdminUserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=80)
     password: str | None = Field(default=None, min_length=6, max_length=72)
     is_active: bool | None = None
+
+
+class AdminPasswordReset(BaseModel):
+    password: str = Field(min_length=6, max_length=72)
 
 
 class AdminUserOut(UserOut):

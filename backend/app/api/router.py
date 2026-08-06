@@ -11,9 +11,11 @@ from app.schemas.models import (
     AdminClassOut,
     AdminClassUpdate,
     AdminOverviewOut,
+    AdminPasswordReset,
     AdminUserCreate,
     AdminUserOut,
     AdminUserUpdate,
+    ChangePasswordRequest,
     ClassCreate,
     ClassOut,
     DashboardOut,
@@ -67,6 +69,12 @@ def me(user: CurrentUser):
     return user
 
 
+@router.post("/auth/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(data: ChangePasswordRequest, user: CurrentUser, db: DB):
+    AuthService(db).change_password(user, data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/admin/overview", response_model=AdminOverviewOut)
 def admin_overview(_: Admin, db: DB):
     return AdminService(db).overview()
@@ -85,6 +93,11 @@ def admin_create_user(data: AdminUserCreate, _: Admin, db: DB):
 @router.patch("/admin/users/{user_id}", response_model=AdminUserOut)
 def admin_update_user(user_id: int, data: AdminUserUpdate, admin: Admin, db: DB):
     return AdminService(db).update_user(admin, user_id, data)
+
+
+@router.post("/admin/users/{user_id}/reset-password", response_model=AdminUserOut)
+def admin_reset_user_password(user_id: int, data: AdminPasswordReset, admin: Admin, db: DB):
+    return AdminService(db).reset_user_password(admin, user_id, data)
 
 
 @router.delete("/admin/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

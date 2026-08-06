@@ -28,6 +28,7 @@ from app.schemas.models import (
     AdminClassOut,
     AdminClassUpdate,
     AdminOverviewOut,
+    AdminPasswordReset,
     AdminUserCreate,
     AdminUserOut,
     AdminUserUpdate,
@@ -87,6 +88,19 @@ class AdminService:
             user.password_hash = hash_password(values["password"])
         if "is_active" in values:
             user.is_active = values["is_active"]
+        self.db.commit()
+        self.db.refresh(user)
+        return AdminUserOut.model_validate(user)
+
+    def reset_user_password(self, admin: User, user_id: int, data: AdminPasswordReset) -> AdminUserOut:
+        user = self.users.get(user_id)
+        if not user:
+            raise AppError("USER_NOT_FOUND", "Account not found", 404)
+        if user.id == admin.id:
+            raise AppError("CANNOT_RESET_SELF", "Use change password for the current admin account", 409)
+        if user.role not in {UserRole.STUDENT, UserRole.TEACHER}:
+            raise AppError("UNSUPPORTED_ACCOUNT_ROLE", "Only student and teacher passwords can be reset here", 409)
+        user.password_hash = hash_password(data.password)
         self.db.commit()
         self.db.refresh(user)
         return AdminUserOut.model_validate(user)

@@ -52,11 +52,38 @@
 
 训练状态机为 `mic_check -> drawing -> researching -> preparing -> speaking -> review -> submitted`。默认配置是试音通过后选题，确认题目后进行 15 分钟资料搜集，随后用 1 分钟整理演讲草稿，最后由学生主动开始 3 分钟正式录音。资料搜集结束由后端根据 `research_ends_at` 自动切入整理；整理倒计时归零后仍停留在 `preparing`，只有学生点击“开始演讲并录音”才会写入 `speaking_started_at` 和 `speaking_ends_at`。所有倒计时均根据服务端 UTC 截止时间校准，页面刷新不会重置时间。
 
+## 本地一键启动
+
+本地开发不需要启动 Docker。Windows 下可直接双击根目录的 `start.bat` 一键启动；脚本会使用本机 PostgreSQL、本机 Python 虚拟环境和 Vite dev server。
+
+```powershell
+Copy-Item .env.example .env
+.\start.bat
+```
+
+默认本地配置：
+
+- Web：http://localhost:5173
+- 管理员登录：http://localhost:5173/admin/login
+- API：http://localhost:8001/api/v1
+- OpenAPI：http://localhost:8001/docs
+- PostgreSQL：本机 `speaking_lab`
+- 录音：阿里云 OSS（由本地 `.env` 配置）
+- 存储：`STORAGE_BACKEND=oss`
+
+首次启动会检查本机 PostgreSQL。如果 `speaking` 角色或 `speaking_lab` 数据库不存在，脚本会提示输入本机 PostgreSQL 的 `postgres` 密码并自动创建。根目录 `.env` 不提交 Git；本地和服务器可以使用同一份代码，但分别维护自己的数据库、OSS Bucket、AccessKey 和其他配置。
+
+本机安装 FFmpeg 后，录音可以完整转码为 MP4：
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+未安装 FFmpeg 时，本地服务仍可启动，但录音上传前的 MP4 转码会失败。
+
 ## Docker 启动
 
-要求 Docker Desktop 与 Docker Compose。
-
-Windows 下可直接双击根目录的 `start.bat` 一键启动。脚本会自动检查 Docker Desktop、构建并启动三个服务，等待后端健康检查通过后打开前端页面；也可以右键使用 PowerShell 执行 `start.ps1`。
+Docker 主要用于服务器部署或本地验证生产镜像。要求 Docker Desktop 与 Docker Compose。
 
 ```powershell
 Copy-Item .env.example .env
@@ -68,7 +95,7 @@ docker compose up --build
 - Web：http://localhost:5173
 - 管理员登录：http://localhost:5173/admin/login
 - API（经前端同源代理）：http://localhost:5173/api/v1
-- OpenAPI（仅本机后端端口）：http://localhost:8000/docs
+- OpenAPI（仅本机后端端口）：http://localhost:8001/docs
 - PostgreSQL：仅在 Docker 内网提供，不映射宿主机端口
 
 Docker 前端通过容器内 Nginx 将 `/api` 转发到后端，前后端宿主机端口均只绑定 `127.0.0.1`。生产环境由系统 Nginx 对外开放 80/443 并代理到 `FRONTEND_PORT`，浏览器不直接访问容器端口。若端口被占用，只需在 `.env` 调整 `BACKEND_PORT` 或 `FRONTEND_PORT`；`VITE_API_URL` 保持 `/api/v1`。
@@ -87,17 +114,20 @@ docker compose down -v
 
 ## 本地开发
 
-本地开发建议让 PostgreSQL 和后端继续运行在 Docker 内网：
+后端：
 
 ```powershell
-docker compose up -d postgres backend
+cd backend
+.\.venv\Scripts\Activate.ps1
+python -m alembic upgrade head
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-查看后端日志和运行测试：
+运行测试：
 
 ```powershell
-docker compose logs -f backend
-docker compose run --rm --no-deps backend pytest -q
+cd backend
+.\.venv\Scripts\python.exe -m pytest
 ```
 
 前端：
@@ -105,7 +135,7 @@ docker compose run --rm --no-deps backend pytest -q
 ```powershell
 cd frontend
 npm install
-$env:VITE_API_URL="http://localhost:8000/api/v1" # 与 BACKEND_PORT 保持一致
+$env:VITE_API_URL="http://localhost:8001/api/v1"
 npm run dev
 ```
 
@@ -114,6 +144,8 @@ npm run dev
 ## OSS 连通性检查
 
 OSS 参数统一保存在根目录 `.env`，真实 AccessKey 不得写入 `.env.example` 或提交到 Git。设置 `STORAGE_BACKEND=oss` 后，新上传录音会在临时目录完成 MP4 转码，再写入 `OSS_RECORDING_PREFIX` 指定的目录；历史本地录音保持原位置并继续兼容播放，不会被自动迁移。
+
+本地和服务器都可以设置 `STORAGE_BACKEND=oss`。区别只在 `.env`：本地使用开发用 OSS 配置，服务器使用生产 OSS 配置。OSS SDK `oss2` 属于后端基础依赖，Docker 和本地 Python 虚拟环境都会安装。
 
 配置好 `OSS_ENDPOINT`、`OSS_BUCKET_NAME`、`OSS_ACCESS_KEY_ID` 和 `OSS_ACCESS_KEY_SECRET` 后执行：
 

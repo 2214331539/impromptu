@@ -24,6 +24,27 @@ def test_authentication_and_role_permissions(client: TestClient, course):
     assert hidden.status_code == 403
 
 
+def test_user_can_change_password(client: TestClient, course):
+    wrong_current = client.post(
+        "/api/v1/auth/change-password",
+        headers=course["student"],
+        json={"current_password": "wrong-password", "new_password": "newpass123"},
+    )
+    assert wrong_current.status_code == 400
+
+    changed = client.post(
+        "/api/v1/auth/change-password",
+        headers=course["student"],
+        json={"current_password": "password123", "new_password": "newpass123"},
+    )
+    assert changed.status_code == 204
+
+    old_login = client.post("/api/v1/auth/login", json={"student_no": "900001", "password": "password123"})
+    assert old_login.status_code == 401
+    new_login = client.post("/api/v1/auth/login", json={"student_no": "900001", "password": "newpass123"})
+    assert new_login.status_code == 200
+
+
 def test_public_registration_only_creates_students(client: TestClient):
     rejected = client.post(
         "/api/v1/auth/register",
@@ -88,6 +109,22 @@ def test_admin_creates_managed_accounts_and_controls_access(client: TestClient, 
     assert removed.status_code == 204
     users_after_delete = client.get("/api/v1/admin/users", headers=course["admin"])
     assert all(item["student_no"] != "910003" for item in users_after_delete.json())
+    reset = client.post(
+        f"/api/v1/admin/users/{teacher_id}/reset-password",
+        headers=course["admin"],
+        json={"password": "teacher456"},
+    )
+    assert reset.status_code == 200
+    old_teacher_login = client.post("/api/v1/auth/login", json={"student_no": "T9001", "password": "password123"})
+    assert old_teacher_login.status_code == 401
+    new_teacher_login = client.post("/api/v1/auth/login", json={"student_no": "T9001", "password": "teacher456"})
+    assert new_teacher_login.status_code == 200
+    reset_self = client.post(
+        "/api/v1/admin/users/1/reset-password",
+        headers=course["admin"],
+        json={"password": "admin456"},
+    )
+    assert reset_self.status_code == 409
 
 
 def test_random_draw_limit_is_persistent(client: TestClient, course, session):
