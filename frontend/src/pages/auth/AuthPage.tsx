@@ -6,6 +6,7 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { api } from "../../api/client";
 import { Button } from "../../components/common/Button";
+import { IcpFooter } from "../../components/common/IcpFooter";
 import { InlineMessage } from "../../components/common/States";
 import { useAuthStore } from "../../stores/auth";
 import type { AuthResponse } from "../../types";
@@ -53,5 +54,6 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
         </div>
       </main>
     </div>
+    <IcpFooter className="mx-auto mt-4 max-w-[1040px]" />
   </div>;
 }

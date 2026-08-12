@@ -21,6 +21,7 @@ import { useAuthStore } from "../../stores/auth";
 import { homeForRole } from "../../utils/auth";
 import { BrandLogo } from "../common/BrandLogo";
 import { Button } from "../common/Button";
+import { IcpFooter } from "../common/IcpFooter";
 import { Modal } from "../common/Modal";
 import { InlineMessage } from "../common/States";
 
@@ -187,6 +188,7 @@ export function AppShell() {
       </header>
       <main id="main-content" className="app-main mx-auto max-w-[1240px] px-4 sm:px-6 md:pb-16 lg:px-8">
         <Outlet />
+        <IcpFooter className="mt-10 pb-0" />
       </main>
       <nav
         className="mobile-tabbar fixed inset-x-0 bottom-0 z-40 border-t border-black/[.08] bg-white/95 px-2 pt-1.5 backdrop-blur-xl md:hidden"
