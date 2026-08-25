@@ -40,7 +40,7 @@ services:
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AI_IMPORT_MAX_TOPICS: ${AI_IMPORT_MAX_TOPICS:-80}
-      AI_IMPORT_TIMEOUT_SECONDS: ${AI_IMPORT_TIMEOUT_SECONDS:-45}
+      AI_IMPORT_TIMEOUT_SECONDS: ${AI_IMPORT_TIMEOUT_SECONDS:-180}
     volumes:
       - ./backend/uploads:/app/uploads
     depends_on:

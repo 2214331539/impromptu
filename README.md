@@ -191,7 +191,7 @@ OPENAI_MODEL=deepseek-v4-flash
 OPENAI_BASE_URL=https://api.deepseek.com
 OPENAI_API_KEY=replace-with-your-api-key
 AI_IMPORT_MAX_TOPICS=80
-AI_IMPORT_TIMEOUT_SECONDS=45
+AI_IMPORT_TIMEOUT_SECONDS=180
 ```
 
 真实 API Key 只放 `.env` 或服务器环境变量，不提交到 Git。Excel 解析依赖 `openpyxl`，已经写入后端依赖；Docker 和本地虚拟环境安装依赖后均可使用。

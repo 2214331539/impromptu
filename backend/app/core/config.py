@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     openai_api_key: str = ""
     ai_import_max_topics: int = 80
-    ai_import_timeout_seconds: int = 45
+    ai_import_timeout_seconds: int = 180
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
