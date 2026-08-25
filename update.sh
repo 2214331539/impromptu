@@ -67,6 +67,8 @@ done
 [ "$ok" = "1" ] || fail "等待健康检查超时，请运行 docker compose logs 排查"
 
 log "=== 5/5 收尾 ==="
+# 构建缓存设上限，超出 5GB 时按最近使用优先清理（不清空，保证下次增量构建仍可复用）
+docker builder prune --keep-storage=5GB -f >/dev/null
 docker image prune -f >/dev/null
 
 # 系统 nginx 配置若有更新则提醒手动应用
