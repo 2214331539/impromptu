@@ -31,6 +31,7 @@ export function TopicsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty | "all">("all");
+  const [deleteBankId, setDeleteBankId] = useState<number | null>(null);
 
   const banks = useQuery({
     queryKey: ["topic-banks"],
@@ -102,10 +103,21 @@ export function TopicsPage() {
     },
   });
 
+  const removeBank = useMutation({
+    mutationFn: (id: number) => api<void>(`/topic-banks/${id}`, { method: "DELETE" }),
+    onSuccess: async (_data, id) => {
+      setDeleteBankId(null);
+      if (activeBankId === id) setSelectedBank(null);
+      await client.invalidateQueries({ queryKey: ["topic-banks"] });
+      await client.invalidateQueries({ queryKey: ["topics", id] });
+    },
+  });
+
   if (banks.isLoading) return <LoadingState />;
   if (banks.isError) return <ErrorState message={banks.error.message} retry={() => banks.refetch()} />;
 
   const bank = banks.data?.find((item) => item.id === activeBankId);
+  const deleteBankTarget = banks.data?.find((item) => item.id === deleteBankId) ?? null;
   const openEdit = (topic: Topic) => {
     setEditingId(topic.id);
     setDraft({
@@ -173,9 +185,6 @@ export function TopicsPage() {
                 }`}
               >
                 <p className="text-sm font-medium">{item.name}</p>
-                <p className={`mt-1 text-[11px] ${activeBankId === item.id ? "text-white/60" : "text-muted"}`}>
-                  {item.active_topic_count} / {item.topic_count} 启用
-                </p>
               </button>
             ))}
           </div>
@@ -183,7 +192,16 @@ export function TopicsPage() {
           <section className="surface overflow-hidden">
             <div className="flex flex-col gap-4 border-b border-black/[.06] p-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h2 className="text-lg font-semibold">{bank?.name}</h2>
+                <div className="flex items-center gap-1.5">
+                  <h2 className="text-lg font-semibold">{bank?.name}</h2>
+                  <button
+                    title="删除题库"
+                    className="grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-red-50 hover:text-danger"
+                    onClick={() => bank && setDeleteBankId(bank.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
                 <p className="mt-1 text-xs text-muted">{bank?.description || "暂无题库说明"}</p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
@@ -197,7 +215,7 @@ export function TopicsPage() {
                   />
                 </label>
                 <select
-                  className="field h-9 sm:w-32"
+                  className="field h-9 px-3 py-0 sm:w-32"
                   value={difficulty}
                   onChange={(event) => setDifficulty(event.target.value as Difficulty | "all")}
                 >
@@ -362,6 +380,27 @@ export function TopicsPage() {
           await client.invalidateQueries({ queryKey: ["topics", item.id] });
         }}
       />
+
+      <Modal open={deleteBankId !== null} onClose={() => setDeleteBankId(null)} title="删除题库">
+        <div className="space-y-4">
+          <p className="text-sm leading-6 text-muted">
+            确定删除题库「{deleteBankTarget?.name}」吗？题库中的题目将一并删除，此操作无法撤销。
+          </p>
+          {removeBank.error && <InlineMessage>{removeBank.error.message}</InlineMessage>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setDeleteBankId(null)}>
+              取消
+            </Button>
+            <Button
+              variant="danger"
+              loading={removeBank.isPending}
+              onClick={() => deleteBankId !== null && removeBank.mutate(deleteBankId)}
+            >
+              删除
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

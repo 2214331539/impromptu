@@ -13,6 +13,7 @@ from app.models.entities import (
     Topic,
     TopicBank,
     TrainingSession,
+    TrainingTask,
     User,
 )
 from app.repositories.repositories import ClassRepository, TopicRepository
@@ -162,6 +163,16 @@ class TopicService:
         self.db.commit()
         self.db.refresh(bank)
         return self._bank_out(bank)
+
+    def delete_bank(self, teacher: User, bank_id: int) -> None:
+        bank = self._owned_bank(teacher.id, bank_id)
+        referenced = self.db.scalar(
+            select(func.count(TrainingTask.id)).where(TrainingTask.topic_bank_id == bank_id)
+        )
+        if referenced:
+            raise AppError("BANK_IN_USE", "该题库已被训练任务引用，无法删除", 409)
+        self.db.delete(bank)
+        self.db.commit()
 
     def import_bank(self, teacher: User, data: TopicImportCommitRequest) -> TopicImportCommitOut:
         bank = TopicBank(

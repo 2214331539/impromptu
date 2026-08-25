@@ -197,6 +197,35 @@ def test_teacher_can_import_ai_topic_bank_preview_and_commit(client: TestClient,
     assert forbidden.status_code == 403
 
 
+def test_topic_bank_delete(client: TestClient, course):
+    teacher = course["teacher"]
+
+    # 被任务引用的题库：拒绝删除，保护训练历史
+    referenced = client.delete(f"/api/v1/topic-banks/{course['bank']['id']}", headers=teacher)
+    assert referenced.status_code == 409
+
+    # 未被引用的题库：直接删除，连同题目一起移除
+    fresh = client.post(
+        "/api/v1/topic-banks", headers=teacher, json={"name": "Disposable", "description": ""}
+    ).json()
+    added = client.post(
+        f"/api/v1/topic-banks/{fresh['id']}/topics",
+        headers=teacher,
+        json={"prompt": "A disposable speaking topic.", "category": "Test", "difficulty": "easy", "tags": ""},
+    )
+    assert added.status_code == 201
+    removed = client.delete(f"/api/v1/topic-banks/{fresh['id']}", headers=teacher)
+    assert removed.status_code == 204
+    after = client.get("/api/v1/topic-banks", headers=teacher).json()
+    assert all(item["id"] != fresh["id"] for item in after)
+    gone = client.get(f"/api/v1/topic-banks/{fresh['id']}/topics", headers=teacher)
+    assert gone.status_code == 404
+
+    # 学生无权删除题库
+    forbidden = client.delete(f"/api/v1/topic-banks/{course['bank']['id']}", headers=course["student"])
+    assert forbidden.status_code == 403
+
+
 def test_random_draw_limit_is_persistent(client: TestClient, course, session):
     url = f"/api/v1/sessions/{session['id']}/draw"
     blocked = client.post(url, headers=course["student"])

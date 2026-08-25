@@ -171,6 +171,12 @@ def create_bank(data: TopicBankCreate, teacher: Teacher, db: DB):
     return TopicService(db).create_bank(teacher, data)
 
 
+@router.delete("/topic-banks/{bank_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_bank(bank_id: int, teacher: Teacher, db: DB):
+    TopicService(db).delete_bank(teacher, bank_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/topic-banks/import-preview", response_model=TopicImportPreviewOut)
 async def preview_topic_bank_import(
     teacher: Teacher,
