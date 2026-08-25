@@ -23,6 +23,8 @@ from app.schemas.models import (
     TopicBankCreate,
     TopicBankOut,
     TopicCreate,
+    TopicImportCommitOut,
+    TopicImportCommitRequest,
     TopicOut,
     TopicUpdate,
 )
@@ -161,6 +163,34 @@ class TopicService:
         self.db.refresh(bank)
         return self._bank_out(bank)
 
+    def import_bank(self, teacher: User, data: TopicImportCommitRequest) -> TopicImportCommitOut:
+        bank = TopicBank(
+            name=data.name.strip(),
+            description=data.description.strip(),
+            teacher_id=teacher.id,
+        )
+        self.db.add(bank)
+        self.db.flush()
+        topics = [
+            Topic(
+                bank_id=bank.id,
+                prompt=item.prompt.strip(),
+                category=item.category.strip(),
+                difficulty=item.difficulty,
+                tags=item.tags.strip(),
+            )
+            for item in data.topics
+        ]
+        self.db.add_all(topics)
+        self.db.commit()
+        self.db.refresh(bank)
+        for topic in topics:
+            self.db.refresh(topic)
+        return TopicImportCommitOut(
+            bank=self._bank_out(bank),
+            topics=[TopicOut.model_validate(topic) for topic in topics],
+        )
+
     def list_topics(
         self,
         teacher: User,
@@ -231,4 +261,3 @@ class TopicService:
             topic_count=len(topics),
             active_topic_count=sum(item.is_active for item in topics),
         )
-

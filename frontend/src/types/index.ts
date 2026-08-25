@@ -12,6 +12,9 @@ export interface ClassRoom { id: number; name: string; invite_code: string; is_a
 export interface Member { id: number; student_no: string; name: string; completed_count: number; average_score: number | null }
 export interface TopicBank { id: number; name: string; description: string; is_active: boolean; topic_count: number; active_topic_count: number }
 export interface Topic { id: number; bank_id: number; prompt: string; category: string; difficulty: Difficulty; tags: string; is_active: boolean; created_at: string }
+export type TopicImportItem = Pick<Topic, "prompt" | "category" | "difficulty" | "tags">;
+export interface TopicImportPreview { name: string; description: string; topics: TopicImportItem[]; warnings: string[] }
+export interface TopicImportCommit { bank: TopicBank; topics: Topic[] }
 export interface Task {
   id: number; name: string; description: string; class_id: number; class_name: string;
   topic_bank_id: number; topic_bank_name: string; teacher_id: number; teacher_name: string;

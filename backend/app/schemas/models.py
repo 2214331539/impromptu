@@ -164,6 +164,31 @@ class TopicBankOut(APIModel):
     active_topic_count: int = 0
 
 
+class TopicImportItem(BaseModel):
+    prompt: str = Field(min_length=5, max_length=2000)
+    category: str = Field(min_length=1, max_length=64)
+    difficulty: Difficulty = Difficulty.MEDIUM
+    tags: str = Field(default="", max_length=255)
+
+
+class TopicImportPreviewOut(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    description: str = Field(default="", max_length=1000)
+    topics: list[TopicImportItem]
+    warnings: list[str] = []
+
+
+class TopicImportCommitRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    description: str = Field(default="", max_length=1000)
+    topics: list[TopicImportItem] = Field(min_length=1, max_length=200)
+
+
+class TopicImportCommitOut(BaseModel):
+    bank: TopicBankOut
+    topics: list[TopicOut]
+
+
 class TaskCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     description: str = Field(default="", max_length=3000)

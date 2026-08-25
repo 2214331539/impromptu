@@ -35,6 +35,9 @@ from app.schemas.models import (
     TopicBankCreate,
     TopicBankOut,
     TopicCreate,
+    TopicImportCommitOut,
+    TopicImportCommitRequest,
+    TopicImportPreviewOut,
     TopicOut,
     TopicUpdate,
     UserOut,
@@ -44,6 +47,7 @@ from app.services.auth import AuthService
 from app.services.catalog import ClassService, TopicService
 from app.services.dashboard import DashboardService
 from app.services.tasks import TaskService
+from app.services.topic_import import TopicImportService
 from app.services.training import TrainingService
 
 router = APIRouter()
@@ -165,6 +169,33 @@ def list_banks(teacher: Teacher, db: DB):
 @router.post("/topic-banks", response_model=TopicBankOut, status_code=status.HTTP_201_CREATED)
 def create_bank(data: TopicBankCreate, teacher: Teacher, db: DB):
     return TopicService(db).create_bank(teacher, data)
+
+
+@router.post("/topic-banks/import-preview", response_model=TopicImportPreviewOut)
+async def preview_topic_bank_import(
+    teacher: Teacher,
+    name: Annotated[str | None, Form()] = None,
+    description: Annotated[str | None, Form()] = None,
+    raw_text: Annotated[str | None, Form()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
+):
+    content = await file.read() if file else None
+    return TopicImportService().preview(
+        name=name,
+        description=description,
+        raw_text=raw_text,
+        filename=file.filename if file else None,
+        file_content=content,
+    )
+
+
+@router.post(
+    "/topic-banks/import-commit",
+    response_model=TopicImportCommitOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def commit_topic_bank_import(data: TopicImportCommitRequest, teacher: Teacher, db: DB):
+    return TopicService(db).import_bank(teacher, data)
 
 
 @router.get("/topic-banks/{bank_id}/topics", response_model=list[TopicOut])

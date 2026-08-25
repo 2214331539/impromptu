@@ -8,7 +8,7 @@
 - 独立管理员登录、账号启停、教师分配与全校班级管理
 - 学号/工号 + 密码登录，JWT 鉴权与学生/教师/管理员角色权限
 - 班级创建、邀请码加入、学生名单与训练统计
-- 题库和题目增删改、启停、分类/难度/标签搜索
+- 题库和题目增删改、启停、分类/难度/标签搜索，支持 AI 从粘贴文本或 Excel 草稿生成可编辑题库
 - 训练任务草稿、发布、关闭、时间与重抽/重录规则
 - 后端随机抽题、抽题记录、次数限制与最终题目锁定
 - 服务端 UTC 阶段结束时间，刷新或切换标签后准确恢复资料搜集、准备整理和演讲倒计时
@@ -155,6 +155,22 @@ docker compose run --rm --no-deps backend python scripts/test_oss_connection.py
 ```
 
 脚本只会在 `OSS_TEST_PREFIX` 下创建一个随机 TXT 对象，读回并比对内容，然后删除并确认对象已不存在。输出 `"status": "ok"` 表示写入、读取和清理均成功。
+
+## AI 题库导入
+
+教师端“题库管理”提供“AI 导入题库”：可粘贴非结构化文本，或上传 `.xlsx`、`.csv`、`.tsv`、`.txt` 文件。后端会调用 OpenAI-compatible Chat Completions API 生成题库草稿；教师确认前可以继续增删改每一道题，保存后写入现有 `TopicBank` / `Topic` 表。
+
+在本地或服务器 `.env` 中配置：
+
+```env
+OPENAI_MODEL=deepseek-v4-flash
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_API_KEY=replace-with-your-api-key
+AI_IMPORT_MAX_TOPICS=80
+AI_IMPORT_TIMEOUT_SECONDS=45
+```
+
+真实 API Key 只放 `.env` 或服务器环境变量，不提交到 Git。Excel 解析依赖 `openpyxl`，已经写入后端依赖；Docker 和本地虚拟环境安装依赖后均可使用。
 
 ## 开发账号
 

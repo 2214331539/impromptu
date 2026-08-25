@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     oss_access_key_secret: str = ""
     oss_recording_prefix: str = "recordings"
     oss_test_prefix: str = "connectivity-tests"
+    openai_model: str = ""
+    openai_base_url: str = ""
+    openai_api_key: str = ""
+    ai_import_max_topics: int = 80
+    ai_import_timeout_seconds: int = 45
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -38,6 +43,10 @@ class Settings(BaseSettings):
                 self.oss_access_key_secret,
             )
         )
+
+    @property
+    def ai_import_configured(self) -> bool:
+        return all((self.openai_model, self.openai_base_url, self.openai_api_key))
 
 
 @lru_cache

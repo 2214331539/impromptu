@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 import wave
 
 from fastapi.testclient import TestClient
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import Recording, TrainingSession
+from app.schemas.models import TopicImportItem
+from app.services.topic_import import TopicImportService
 from app.services.training import TrainingService
 
 
@@ -125,6 +128,73 @@ def test_admin_creates_managed_accounts_and_controls_access(client: TestClient, 
         json={"password": "admin456"},
     )
     assert reset_self.status_code == 409
+
+
+def test_teacher_can_import_ai_topic_bank_preview_and_commit(client: TestClient, course, monkeypatch):
+    monkeypatch.setattr(settings, "openai_model", "test-model")
+    monkeypatch.setattr(settings, "openai_base_url", "https://example.test")
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+
+    def fake_request_ai(self, *, source, requested_name, requested_description):
+        assert "urban transport" in source
+        return SimpleNamespace(
+            name=requested_name or "AI Generated Topics",
+            description=requested_description or "Imported from teacher material",
+            topics=[
+                TopicImportItem(
+                    prompt="Discuss how urban transport changes daily life.",
+                    category="Society",
+                    difficulty="medium",
+                    tags="city, transport",
+                ),
+                TopicImportItem(
+                    prompt="Discuss how urban transport changes daily life.",
+                    category="Society",
+                    difficulty="medium",
+                    tags="duplicate",
+                ),
+                TopicImportItem(
+                    prompt="Explain one technology that helps students learn English.",
+                    category="Education",
+                    difficulty="easy",
+                    tags="technology, learning",
+                ),
+            ],
+            warnings=[],
+        )
+
+    monkeypatch.setattr(TopicImportService, "_request_ai", fake_request_ai)
+    preview = client.post(
+        "/api/v1/topic-banks/import-preview",
+        headers=course["teacher"],
+        data={"name": "Imported Bank", "raw_text": "urban transport\neducation technology"},
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["name"] == "Imported Bank"
+    assert len(body["topics"]) == 2
+
+    committed = client.post(
+        "/api/v1/topic-banks/import-commit",
+        headers=course["teacher"],
+        json={
+            "name": body["name"],
+            "description": body["description"],
+            "topics": body["topics"],
+        },
+    )
+    assert committed.status_code == 201, committed.text
+    committed_body = committed.json()
+    assert committed_body["bank"]["name"] == "Imported Bank"
+    assert committed_body["bank"]["topic_count"] == 2
+    assert len(committed_body["topics"]) == 2
+
+    forbidden = client.post(
+        "/api/v1/topic-banks/import-preview",
+        headers=course["student"],
+        data={"raw_text": "student should not import topics"},
+    )
+    assert forbidden.status_code == 403
 
 
 def test_random_draw_limit_is_persistent(client: TestClient, course, session):
