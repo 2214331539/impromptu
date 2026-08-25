@@ -100,6 +100,30 @@ docker compose up --build
 
 Docker 前端通过容器内 Nginx 将 `/api` 转发到后端，前后端宿主机端口均只绑定 `127.0.0.1`。生产环境由系统 Nginx 对外开放 80/443 并代理到 `FRONTEND_PORT`，浏览器不直接访问容器端口。若端口被占用，只需在 `.env` 调整 `BACKEND_PORT` 或 `FRONTEND_PORT`；`VITE_API_URL` 保持 `/api/v1`。
 
+## 生产 HTTPS 部署
+
+系统 Nginx 配置见 `deploy/nginx/impromptu.conf`：80 端口 301 跳转到 HTTPS，443 端口启用 SSL/HTTP2 并代理到 `FRONTEND_PORT`，`www` 统一跳转到主域名。将文件拷贝到服务器 `/etc/nginx/conf.d/impromptu.conf` 后 `nginx -t && systemctl reload nginx`。
+
+证书由 certbot 自动签发与续期：
+
+```bash
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot certonly --nginx -d impromptu.com.cn -d www.impromptu.com.cn \
+  --agree-tos -n -m you@example.com --deploy-hook "systemctl reload nginx"
+```
+
+证书位于 `/etc/letsencrypt/live/impromptu.com.cn/`，`certbot.timer` 自动续期，续期成功后 `renew_hook` 自动 reload Nginx。验证续期链路可运行 `sudo certbot renew --dry-run`。扩展证书域名时重复执行上面的签发命令即可（`-d` 列出全部域名）。
+
+## 服务器更新
+
+开发机推送代码到 GitHub 后，在服务器项目根目录执行：
+
+```bash
+./update.sh
+```
+
+脚本会拉取最新代码、重新构建镜像、重启容器、等待健康检查并清理旧镜像；涉及 `docker-compose.yml` / `.env.example` 变更或 `deploy/nginx` 配置更新时会给出提醒。`.env` 由 Git 忽略，脚本不会触碰，配置变更手动维护。服务器工作区有未提交修改时脚本会拒绝执行；确认可丢弃时使用 `./update.sh --force`。
+
 停止服务：
 
 ```powershell
