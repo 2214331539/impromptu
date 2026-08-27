@@ -165,7 +165,7 @@ class TopicBankOut(APIModel):
 
 
 class TopicImportItem(BaseModel):
-    prompt: str = Field(min_length=5, max_length=2000)
+    prompt: str = Field(min_length=2, max_length=2000)
     category: str = Field(min_length=1, max_length=64)
     difficulty: Difficulty = Difficulty.MEDIUM
     tags: str = Field(default="", max_length=255)

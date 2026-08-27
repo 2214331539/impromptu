@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import Recording, TrainingSession
-from app.schemas.models import TopicImportItem
 from app.services.topic_import import TopicImportService
 from app.services.training import TrainingService
 
@@ -136,29 +135,13 @@ def test_teacher_can_import_ai_topic_bank_preview_and_commit(client: TestClient,
     monkeypatch.setattr(settings, "openai_api_key", "test-key")
 
     def fake_request_ai(self, *, source, requested_name, requested_description):
-        assert "urban transport" in source
+        assert "Growth Mindset" in source
         return SimpleNamespace(
-            name=requested_name or "AI Generated Topics",
-            description=requested_description or "Imported from teacher material",
             topics=[
-                TopicImportItem(
-                    prompt="Discuss how urban transport changes daily life.",
-                    category="Society",
-                    difficulty="medium",
-                    tags="city, transport",
-                ),
-                TopicImportItem(
-                    prompt="Discuss how urban transport changes daily life.",
-                    category="Society",
-                    difficulty="medium",
-                    tags="duplicate",
-                ),
-                TopicImportItem(
-                    prompt="Explain one technology that helps students learn English.",
-                    category="Education",
-                    difficulty="easy",
-                    tags="technology, learning",
-                ),
+                "Growth Mindset",
+                "Cognitive Dissonance",
+                "Growth Mindset",
+                "Delayed Gratifcation",
             ],
             warnings=[],
         )
@@ -167,12 +150,16 @@ def test_teacher_can_import_ai_topic_bank_preview_and_commit(client: TestClient,
     preview = client.post(
         "/api/v1/topic-banks/import-preview",
         headers=course["teacher"],
-        data={"name": "Imported Bank", "raw_text": "urban transport\neducation technology"},
+        data={"name": "Imported Bank", "raw_text": "Growth Mindset\nCognitive Dissonance\nDelayed Gratifcation"},
     )
     assert preview.status_code == 200, preview.text
     body = preview.json()
     assert body["name"] == "Imported Bank"
-    assert len(body["topics"]) == 2
+    assert body["description"] == ""
+    assert len(body["topics"]) == 3
+    assert body["topics"][0]["prompt"] == "Growth Mindset"
+    assert body["topics"][0]["category"] == "Topic"
+    assert body["topics"][0]["tags"] == ""
 
     committed = client.post(
         "/api/v1/topic-banks/import-commit",
@@ -186,8 +173,10 @@ def test_teacher_can_import_ai_topic_bank_preview_and_commit(client: TestClient,
     assert committed.status_code == 201, committed.text
     committed_body = committed.json()
     assert committed_body["bank"]["name"] == "Imported Bank"
-    assert committed_body["bank"]["topic_count"] == 2
-    assert len(committed_body["topics"]) == 2
+    assert committed_body["bank"]["topic_count"] == 3
+    assert len(committed_body["topics"]) == 3
+    assert committed_body["topics"][2]["prompt"] == "Delayed Gratifcation"
+    assert committed_body["topics"][2]["tags"] == ""
 
     forbidden = client.post(
         "/api/v1/topic-banks/import-preview",

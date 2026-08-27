@@ -15,9 +15,7 @@ from app.schemas.models import TopicImportItem, TopicImportPreviewOut
 
 
 class _AIImportResult(BaseModel):
-    name: str = Field(min_length=2, max_length=120)
-    description: str = Field(default="", max_length=1000)
-    topics: list[TopicImportItem] = Field(min_length=1)
+    topics: list[str] = Field(min_length=1)
     warnings: list[str] = []
 
 
@@ -34,7 +32,7 @@ class TopicImportService:
         file_content: bytes | None,
     ) -> TopicImportPreviewOut:
         source = self._source_text(raw_text, filename, file_content)
-        if len(source) < 10:
+        if len(source) < 2:
             raise AppError("EMPTY_IMPORT_SOURCE", "Import content is too short.", 422)
         if not settings.ai_import_configured:
             raise AppError("AI_IMPORT_NOT_CONFIGURED", "AI import is not configured.", 503)
@@ -52,8 +50,8 @@ class TopicImportService:
         if len(result.topics) > max_topics:
             warnings.append(f"Only the first {max_topics} topics were kept.")
         return TopicImportPreviewOut(
-            name=(name or result.name).strip(),
-            description=(description or result.description or "").strip(),
+            name=(name or "AI Imported Topics").strip(),
+            description=(description or "").strip(),
             topics=topics,
             warnings=warnings,
         )
@@ -122,20 +120,20 @@ class TopicImportService:
                 {
                     "role": "system",
                     "content": (
-                        "You transform teacher-provided unstructured text or spreadsheet rows into an English "
-                        "speaking topic bank. Return strict JSON only. Use this schema: "
-                        '{"name": string, "description": string, "topics": ['
-                        '{"prompt": string, "category": string, "difficulty": "easy|medium|hard", "tags": string}'
-                        '], "warnings": string[]}. Prompts must be English speaking prompts, not answers. '
-                        "Deduplicate near-identical topics. Keep tags comma-separated and concise."
+                        "You clean teacher-provided topic terms for an impromptu speaking topic bank. "
+                        "The input is usually many nouns or short academic phrases copied from Excel. "
+                        "Return strict JSON only with this schema: "
+                        '{"topics": ["Growth Mindset", "Cognitive Dissonance"], "warnings": string[]}. '
+                        "Do not create a topic bank name, description, categories, tags, questions, prompts, "
+                        "or explanations. Do not rewrite, expand, translate, or polish the topic terms. "
+                        "Only remove numbering, empty rows, table headers, and duplicates while preserving "
+                        "the original order and wording as much as possible."
                     ),
                 },
                 {
                     "role": "user",
                     "content": json.dumps(
                         {
-                            "requested_name": requested_name,
-                            "requested_description": requested_description,
                             "source": source[:20000],
                             "max_topics": settings.ai_import_max_topics,
                         },
@@ -180,26 +178,23 @@ class TopicImportService:
         return json.loads(text)
 
     @staticmethod
-    def _dedupe_topics(topics: list[TopicImportItem]) -> list[TopicImportItem]:
+    def _dedupe_topics(topics: list[str]) -> list[TopicImportItem]:
         seen: set[str] = set()
         result: list[TopicImportItem] = []
         for topic in topics:
-            normalized_prompt = " ".join(topic.prompt.strip().lower().split())
+            prompt = str(topic).strip().strip("-•*0123456789.、) ")
+            if len(prompt) < 2:
+                continue
+            normalized_prompt = " ".join(prompt.lower().split())
             if normalized_prompt in seen:
                 continue
             seen.add(normalized_prompt)
-            category = topic.category.strip() or "General"
-            tags = ", ".join(
-                part.strip()
-                for part in topic.tags.replace("，", ",").split(",")
-                if part.strip()
-            )
             result.append(
                 TopicImportItem(
-                    prompt=topic.prompt.strip(),
-                    category=category[:64],
-                    difficulty=topic.difficulty,
-                    tags=tags[:255],
+                    prompt=prompt[:2000],
+                    category="Topic",
+                    difficulty=Difficulty.MEDIUM,
+                    tags="",
                 )
             )
         return result
