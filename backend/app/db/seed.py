@@ -68,6 +68,8 @@ def seed() -> None:
             db.add(
                 User(
                     student_no="A1001",
+                    email="admin@impromptu.local",
+                    email_verified=True,
                     name="系统管理员",
                     password_hash=hash_password("admin123"),
                     role=UserRole.ADMIN,
@@ -81,18 +83,24 @@ def seed() -> None:
 
         teacher = User(
             student_no="T1001",
+            email="teacher@impromptu.local",
+            email_verified=True,
             name="林老师",
             password_hash=hash_password("teacher123"),
             role=UserRole.TEACHER,
         )
         student_a = User(
             student_no="250001",
+            email="student1@impromptu.local",
+            email_verified=True,
             name="陈语桐",
             password_hash=hash_password("student123"),
             role=UserRole.STUDENT,
         )
         student_b = User(
             student_no="250002",
+            email="student2@impromptu.local",
+            email_verified=True,
             name="周明远",
             password_hash=hash_password("student123"),
             role=UserRole.STUDENT,

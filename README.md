@@ -4,9 +4,9 @@
 
 ## 功能
 
-- 学生开放注册，教师与管理员账号由系统管理员统一创建
-- 独立管理员登录、账号启停、教师分配与全校班级管理
-- 学号/工号 + 密码登录，JWT 鉴权与学生/教师/管理员角色权限
+- 学生开放注册且必须完成邮箱验证码验证，教师与管理员账号由系统管理员统一创建
+- 独立管理员登录、账号启停、教师分配、邮箱维护与全校班级管理
+- 账号 + 密码登录，登录页支持通过绑定邮箱验证码找回密码，JWT 鉴权与学生/教师/管理员角色权限
 - 班级创建、邀请码加入、学生名单与训练统计
 - 题库和题目增删改、启停、分类/难度/标签搜索，支持 AI 从粘贴文本或 Excel 草稿提取可编辑主题清单
 - 训练任务草稿、发布、关闭、时间与重抽/重录规则
@@ -195,6 +195,28 @@ AI_IMPORT_TIMEOUT_SECONDS=180
 ```
 
 真实 API Key 只放 `.env` 或服务器环境变量，不提交到 Git。Excel 解析依赖 `openpyxl`，已经写入后端依赖；Docker 和本地虚拟环境安装依赖后均可使用。
+
+## 邮箱验证码
+
+注册和找回密码使用邮箱验证码。验证码有效期默认 10 分钟，同一邮箱同一用途每天最多发送 10 次。验证码只保存哈希，不保存明文。
+
+阿里云邮件推送 SMTP 配置放在 `.env`：
+
+```env
+SMTP_HOST=smtpdm.aliyun.com
+SMTP_PORT=465
+SMTP_USERNAME=noreply@impromptu.com.cn
+SMTP_PASSWORD=replace-with-smtp-password
+SMTP_FROM_EMAIL=noreply@impromptu.com.cn
+SMTP_FROM_NAME=Impromptu
+SMTP_USE_SSL=true
+EMAIL_CODE_EXPIRE_MINUTES=10
+EMAIL_DAILY_LIMIT=10
+EMAIL_SEND_INTERVAL_SECONDS=60
+REQUIRE_VERIFIED_EMAIL=true
+```
+
+学生注册流程为：账号 + 姓名 + 邮箱 + 密码，先发送邮箱验证码，再提交注册。找回密码流程为：账号 + 绑定邮箱 + 验证码 + 新密码。验证码发送后默认 60 秒内不能重复发送，同一邮箱同一用途每天最多发送 10 次。教师账号仍由管理员创建，管理员创建或修改邮箱时会将邮箱视为已绑定验证。
 
 ## 开发账号
 

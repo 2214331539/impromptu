@@ -3,7 +3,7 @@ export type TaskStatus = "draft" | "published" | "closed";
 export type SessionPhase = "mic_check" | "drawing" | "researching" | "preparing" | "speaking" | "review" | "submitted";
 export type Difficulty = "easy" | "medium" | "hard";
 
-export interface User { id: number; student_no: string; name: string; role: Role }
+export interface User { id: number; student_no: string; email: string | null; email_verified: boolean; name: string; role: Role }
 export interface AuthResponse { access_token: string; token_type: "bearer"; user: User }
 export interface AdminUser extends User { is_active: boolean; created_at: string }
 export interface AdminOverview { metrics: Record<string, number>; recent_users: AdminUser[] }

@@ -21,6 +21,9 @@ class UserRepository:
     def by_student_no(self, student_no: str) -> User | None:
         return self.db.scalar(select(User).where(User.student_no == student_no))
 
+    def by_email(self, email: str) -> User | None:
+        return self.db.scalar(select(User).where(User.email == email.lower()))
+
     def get(self, user_id: int) -> User | None:
         return self.db.get(User, user_id)
 

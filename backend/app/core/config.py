@@ -1,6 +1,10 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
@@ -26,8 +30,19 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     ai_import_max_topics: int = 80
     ai_import_timeout_seconds: int = 180
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "Impromptu"
+    smtp_use_ssl: bool = True
+    email_code_expire_minutes: int = 10
+    email_daily_limit: int = 10
+    email_send_interval_seconds: int = 60
+    require_verified_email: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ROOT_ENV_FILE, extra="ignore")
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -47,6 +62,10 @@ class Settings(BaseSettings):
     @property
     def ai_import_configured(self) -> bool:
         return all((self.openai_model, self.openai_base_url, self.openai_api_key))
+
+    @property
+    def smtp_configured(self) -> bool:
+        return all((self.smtp_host, self.smtp_username, self.smtp_password, self.smtp_from_email))
 
 
 @lru_cache

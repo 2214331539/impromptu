@@ -55,6 +55,8 @@ class User(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     student_no: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     name: Mapped[str] = mapped_column(String(80))
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(Enum(UserRole, native_enum=False), index=True)
@@ -62,6 +64,21 @@ class User(Base, TimestampMixin):
 
     owned_classes: Mapped[list["ClassRoom"]] = relationship(back_populates="teacher")
     memberships: Mapped[list["ClassMember"]] = relationship(back_populates="student")
+
+
+class EmailCode(Base, TimestampMixin):
+    __tablename__ = "email_codes"
+    __table_args__ = (
+        Index("ix_email_codes_email_purpose_created", "email", "purpose", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    account: Mapped[str | None] = mapped_column(String(32), index=True)
+    purpose: Mapped[str] = mapped_column(String(32), index=True)
+    code_hash: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ClassRoom(Base, TimestampMixin):

@@ -5,10 +5,12 @@ from types import SimpleNamespace
 import wave
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.entities import Recording, TrainingSession
+from app.core.security import hash_password
+from app.models.entities import EmailCode, Recording, TrainingSession
 from app.services.topic_import import TopicImportService
 from app.services.training import TrainingService
 
@@ -47,29 +49,101 @@ def test_user_can_change_password(client: TestClient, course):
     assert new_login.status_code == 200
 
 
-def test_public_registration_only_creates_students(client: TestClient):
+def set_test_email_code(db_session: Session, email: str, purpose: str, account: str) -> None:
+    item = db_session.scalar(
+        select(EmailCode)
+        .where(
+            EmailCode.email == email,
+            EmailCode.purpose == purpose,
+            EmailCode.account == account.upper(),
+        )
+        .order_by(EmailCode.created_at.desc())
+    )
+    assert item is not None
+    item.code_hash = hash_password("111111")
+    db_session.commit()
+
+
+def test_public_registration_only_creates_students(client: TestClient, db_session: Session):
     rejected = client.post(
         "/api/v1/auth/register",
         json={
             "student_no": "T7001",
+            "email": "teacher-self@example.test",
+            "email_code": "111111",
             "name": "Self registered teacher",
             "password": "password123",
             "role": "teacher",
         },
     )
     assert rejected.status_code == 422
+    code = client.post(
+        "/api/v1/auth/register/email-code",
+        json={"student_no": "STU_7001", "email": "student7001@example.test"},
+    )
+    assert code.status_code == 204, code.text
+    set_test_email_code(db_session, "student7001@example.test", "register", "STU_7001")
     created = client.post(
         "/api/v1/auth/register",
-        json={"student_no": "700001", "name": "Student", "password": "password123"},
+        json={
+            "student_no": "STU_7001",
+            "email": "student7001@example.test",
+            "email_code": "111111",
+            "name": "Student",
+            "password": "password123",
+        },
     )
     assert created.status_code == 201
     assert created.json()["user"]["role"] == "student"
-    for invalid_student_no in ("70001", "7000011", "70001A"):
-        invalid = client.post(
-            "/api/v1/auth/register",
-            json={"student_no": invalid_student_no, "name": "Student", "password": "password123"},
-        )
-        assert invalid.status_code == 422
+    assert created.json()["user"]["email_verified"] is True
+    invalid = client.post(
+        "/api/v1/auth/register",
+        json={
+            "student_no": "AB",
+            "email": "invalid@example.test",
+            "email_code": "111111",
+            "name": "Student",
+            "password": "password123",
+        },
+    )
+    assert invalid.status_code == 422
+
+
+def test_password_reset_uses_account_email_and_code(client: TestClient, course, db_session: Session):
+    requested = client.post(
+        "/api/v1/auth/password-reset/email-code",
+        json={"student_no": "900001", "email": "900001@example.test"},
+    )
+    assert requested.status_code == 204, requested.text
+    set_test_email_code(db_session, "900001@example.test", "password_reset", "900001")
+    reset = client.post(
+        "/api/v1/auth/password-reset",
+        json={
+            "student_no": "900001",
+            "email": "900001@example.test",
+            "email_code": "111111",
+            "new_password": "reset123",
+        },
+    )
+    assert reset.status_code == 204, reset.text
+    old_login = client.post("/api/v1/auth/login", json={"student_no": "900001", "password": "password123"})
+    assert old_login.status_code == 401
+    new_login = client.post("/api/v1/auth/login", json={"student_no": "900001", "password": "reset123"})
+    assert new_login.status_code == 200
+
+
+def test_email_code_send_has_sixty_second_interval(client: TestClient, course):
+    requested = client.post(
+        "/api/v1/auth/password-reset/email-code",
+        json={"student_no": "900001", "email": "900001@example.test"},
+    )
+    assert requested.status_code == 204, requested.text
+    repeated = client.post(
+        "/api/v1/auth/password-reset/email-code",
+        json={"student_no": "900001", "email": "900001@example.test"},
+    )
+    assert repeated.status_code == 429
+    assert repeated.json()["error"]["code"] == "EMAIL_CODE_TOO_FREQUENT"
 
 
 def test_admin_creates_managed_accounts_and_controls_access(client: TestClient, course):
@@ -78,7 +152,13 @@ def test_admin_creates_managed_accounts_and_controls_access(client: TestClient, 
     created = client.post(
         "/api/v1/admin/users",
         headers=course["admin"],
-        json={"student_no": "A9002", "name": "Second Admin", "password": "password123", "role": "admin"},
+        json={
+            "student_no": "A9002",
+            "email": "admin2@example.test",
+            "name": "Second Admin",
+            "password": "password123",
+            "role": "admin",
+        },
     )
     assert created.status_code == 201, created.text
     assert created.json()["role"] == "admin"
@@ -102,7 +182,13 @@ def test_admin_creates_managed_accounts_and_controls_access(client: TestClient, 
     created_student = client.post(
         "/api/v1/admin/users",
         headers=course["admin"],
-        json={"student_no": "910003", "name": "Removable Student", "password": "password123", "role": "student"},
+        json={
+            "student_no": "910003",
+            "email": "removable@example.test",
+            "name": "Removable Student",
+            "password": "password123",
+            "role": "student",
+        },
     )
     assert created_student.status_code == 201, created_student.text
     delete_self = client.delete("/api/v1/admin/users/1", headers=course["admin"])

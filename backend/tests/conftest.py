@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import httpx
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -13,7 +13,8 @@ from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models.entities import User, UserRole
+from app.models.entities import EmailCode, User, UserRole
+from app.services.email import Mailer
 
 # The host image ships legacy Starlette with httpx 0.28. Project dependencies use
 # a compatible FastAPI/Starlette pair, but this keeps local host tests runnable too.
@@ -24,6 +25,11 @@ if "app" not in httpx.Client.__init__.__code__.co_varnames:
         original_httpx_init(self, *args, **kwargs)
 
     httpx.Client.__init__ = compatible_httpx_init
+
+
+@pytest.fixture(autouse=True)
+def email_code_mock(monkeypatch):
+    monkeypatch.setattr(Mailer, "send_code", lambda self, email, code, purpose: None)
 
 
 @pytest.fixture()
@@ -59,10 +65,38 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
-def auth_header(client: TestClient, student_no: str, name: str) -> dict[str, str]:
+def set_latest_email_code(db_session: Session, email: str, purpose: str, account: str, code: str = "111111") -> None:
+    item = db_session.scalar(
+        select(EmailCode)
+        .where(
+            EmailCode.email == email,
+            EmailCode.purpose == purpose,
+            EmailCode.account == account.upper(),
+        )
+        .order_by(EmailCode.created_at.desc())
+    )
+    assert item is not None
+    item.code_hash = hash_password(code)
+    db_session.commit()
+
+
+def auth_header(client: TestClient, db_session: Session, student_no: str, name: str) -> dict[str, str]:
+    email = f"{student_no.lower()}@example.test"
+    code = client.post(
+        "/api/v1/auth/register/email-code",
+        json={"student_no": student_no, "email": email},
+    )
+    assert code.status_code == 204, code.text
+    set_latest_email_code(db_session, email, "register", student_no)
     response = client.post(
         "/api/v1/auth/register",
-        json={"student_no": student_no, "name": name, "password": "password123"},
+        json={
+            "student_no": student_no,
+            "email": email,
+            "email_code": "111111",
+            "name": name,
+            "password": "password123",
+        },
     )
     assert response.status_code == 201, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
@@ -82,6 +116,8 @@ def admin(client: TestClient, db_session: Session) -> dict[str, str]:
     db_session.add(
         User(
             student_no="A9001",
+            email="admin@example.test",
+            email_verified=True,
             name="Admin",
             password_hash=hash_password("password123"),
             role=UserRole.ADMIN,
@@ -92,16 +128,22 @@ def admin(client: TestClient, db_session: Session) -> dict[str, str]:
 
 
 @pytest.fixture()
-def course(client: TestClient, admin):
+def course(client: TestClient, admin, db_session: Session):
     teacher_account = client.post(
         "/api/v1/admin/users",
         headers=admin,
-        json={"student_no": "T9001", "name": "Teacher", "password": "password123", "role": "teacher"},
+        json={
+            "student_no": "T9001",
+            "email": "teacher@example.test",
+            "name": "Teacher",
+            "password": "password123",
+            "role": "teacher",
+        },
     )
     assert teacher_account.status_code == 201, teacher_account.text
     teacher = login_header(client, "T9001")
-    student = auth_header(client, "900001", "Student")
-    other_student = auth_header(client, "900002", "Other")
+    student = auth_header(client, db_session, "900001", "Student")
+    other_student = auth_header(client, db_session, "900002", "Other")
 
     classroom = client.post("/api/v1/classes", headers=teacher, json={"name": "Test Class"}).json()
     assert client.post(

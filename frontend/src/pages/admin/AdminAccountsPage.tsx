@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus, Power, Trash2, UserCog } from "lucide-react";
+import { AtSign, KeyRound, Plus, Power, Trash2, UserCog } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -16,15 +16,11 @@ import { formatDate } from "../../utils/format";
 const createSchema = z
   .object({
     student_no: z.string().min(3).max(32),
+    email: z.string().email("请输入正确的邮箱"),
     name: z.string().min(2).max(80),
     password: z.string().min(6).max(72),
     role: z.enum(["student", "teacher", "admin"]),
   })
-  .superRefine((values, context) => {
-    if (values.role === "student" && !/^\d{6}$/.test(values.student_no)) {
-      context.addIssue({ code: "custom", path: ["student_no"], message: "学生学号必须为 6 位数字" });
-    }
-  });
 const resetSchema = z
   .object({
     password: z.string().min(6, "新密码至少 6 位").max(72),
@@ -35,9 +31,13 @@ const resetSchema = z
       context.addIssue({ code: "custom", path: ["confirm_password"], message: "两次输入的新密码不一致" });
     }
   });
+const emailSchema = z.object({
+  email: z.string().email("请输入正确的邮箱"),
+});
 
 type Values = z.infer<typeof createSchema>;
 type ResetValues = z.infer<typeof resetSchema>;
+type EmailValues = z.infer<typeof emailSchema>;
 
 const roleLabel: Record<Role, string> = { student: "学生", teacher: "教师", admin: "管理员" };
 
@@ -46,17 +46,20 @@ export function AdminAccountsPage() {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   const [resetUser, setResetUser] = useState<AdminUser | null>(null);
+  const [emailUser, setEmailUser] = useState<AdminUser | null>(null);
   const [filter, setFilter] = useState<Role | "all">("all");
   const form = useForm<Values>({
     resolver: zodResolver(createSchema),
-    defaultValues: { student_no: "", name: "", password: "", role: "teacher" },
+    defaultValues: { student_no: "", email: "", name: "", password: "", role: "teacher" },
   });
   const resetForm = useForm<ResetValues>({
     resolver: zodResolver(resetSchema),
     defaultValues: { password: "", confirm_password: "" },
   });
-  const selectedRole = form.watch("role");
-
+  const emailForm = useForm<EmailValues>({
+    resolver: zodResolver(emailSchema),
+    defaultValues: { email: "" },
+  });
   const users = useQuery({ queryKey: ["admin-users"], queryFn: () => api<AdminUser[]>("/admin/users") });
   const invalidate = async () => {
     await Promise.all([
@@ -93,6 +96,18 @@ export function AdminAccountsPage() {
       await invalidate();
     },
   });
+  const updateEmail = useMutation({
+    mutationFn: ({ user, values }: { user: AdminUser; values: EmailValues }) =>
+      api<AdminUser>(`/admin/users/${user.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ email: values.email }),
+      }),
+    onSuccess: async () => {
+      setEmailUser(null);
+      emailForm.reset();
+      await invalidate();
+    },
+  });
   const remove = useMutation({
     mutationFn: (user: AdminUser) => api<void>(`/admin/users/${user.id}`, { method: "DELETE" }),
     onSuccess: invalidate,
@@ -102,7 +117,7 @@ export function AdminAccountsPage() {
   if (users.isError) return <ErrorState message={users.error.message} retry={() => users.refetch()} />;
 
   const visible = (users.data || []).filter((user) => filter === "all" || user.role === filter);
-  const busy = toggle.isPending || remove.isPending || resetPassword.isPending;
+  const busy = toggle.isPending || remove.isPending || resetPassword.isPending || updateEmail.isPending;
 
   return (
     <div className="page-enter">
@@ -135,11 +150,12 @@ export function AdminAccountsPage() {
 
       {visible.length ? (
         <section className="surface overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left">
+          <table className="w-full min-w-[980px] text-left">
             <thead>
               <tr className="border-b border-black/[.06] text-xs text-muted">
                 <th className="px-5 py-3 font-medium">姓名</th>
                 <th className="px-5 py-3 font-medium">账号</th>
+                <th className="px-5 py-3 font-medium">邮箱</th>
                 <th className="px-5 py-3 font-medium">身份</th>
                 <th className="px-5 py-3 font-medium">创建时间</th>
                 <th className="px-5 py-3 font-medium">状态</th>
@@ -154,6 +170,14 @@ export function AdminAccountsPage() {
                   <tr key={user.id} className="border-b border-black/[.05] last:border-0">
                     <td className="px-5 py-4 text-sm font-medium">{user.name}</td>
                     <td className="px-5 py-4 text-sm text-muted">{user.student_no}</td>
+                    <td className="px-5 py-4 text-sm text-muted">
+                      <div>{user.email || "-"}</div>
+                      {user.email && (
+                        <span className={user.email_verified ? "text-success" : "text-warning"}>
+                          {user.email_verified ? "已验证" : "未验证"}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-5 py-4">
                       <Badge tone={user.role === "admin" ? "blue" : undefined}>{roleLabel[user.role]}</Badge>
                     </td>
@@ -171,6 +195,18 @@ export function AdminAccountsPage() {
                           className="grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-black/[.04] hover:text-ink disabled:opacity-30"
                         >
                           <KeyRound className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title="修改邮箱"
+                          disabled={busy}
+                          onClick={() => {
+                            setEmailUser(user);
+                            emailForm.reset({ email: user.email || "" });
+                          }}
+                          className="grid h-8 w-8 place-items-center rounded-full text-muted hover:bg-black/[.04] hover:text-ink disabled:opacity-30"
+                        >
+                          <AtSign className="h-4 w-4" />
                         </button>
                         <button
                           type="button"
@@ -219,17 +255,24 @@ export function AdminAccountsPage() {
             <input className="field" {...form.register("name")} />
           </div>
           <div>
-            <label className="label">{selectedRole === "student" ? "6 位数字学号" : "账号 / 工号"}</label>
+            <label className="label">账号 / 工号</label>
             <input
               className="field"
-              autoCapitalize={selectedRole === "student" ? "off" : "characters"}
-              inputMode={selectedRole === "student" ? "numeric" : "text"}
-              maxLength={selectedRole === "student" ? 6 : 32}
-              placeholder={selectedRole === "student" ? "例如 250001" : "输入账号或工号"}
+              autoCapitalize="characters"
+              inputMode="text"
+              maxLength={32}
+              placeholder="输入账号或工号"
               {...form.register("student_no")}
             />
             {form.formState.errors.student_no && (
               <p className="mt-1 text-xs text-danger">{form.formState.errors.student_no.message}</p>
+            )}
+          </div>
+          <div>
+            <label className="label">邮箱</label>
+            <input className="field" type="email" autoComplete="email" placeholder="name@example.com" {...form.register("email")} />
+            {form.formState.errors.email && (
+              <p className="mt-1 text-xs text-danger">{form.formState.errors.email.message}</p>
             )}
           </div>
           <div>
@@ -301,6 +344,49 @@ export function AdminAccountsPage() {
             </Button>
             <Button type="submit" loading={resetPassword.isPending} icon={<KeyRound className="h-4 w-4" />}>
               保存新密码
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={!!emailUser}
+        onClose={() => {
+          setEmailUser(null);
+          emailForm.reset();
+        }}
+        title="修改邮箱"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={emailForm.handleSubmit((values) => {
+            if (emailUser) updateEmail.mutate({ user: emailUser, values });
+          })}
+        >
+          <p className="text-sm text-muted">
+            正在为 <span className="font-medium text-ink">{emailUser?.name}</span> 更新绑定邮箱。
+          </p>
+          <div>
+            <label className="label">新邮箱</label>
+            <input className="field" type="email" autoComplete="email" {...emailForm.register("email")} />
+            {emailForm.formState.errors.email && (
+              <p className="mt-1 text-xs text-danger">{emailForm.formState.errors.email.message}</p>
+            )}
+          </div>
+          {updateEmail.error && <InlineMessage>{updateEmail.error.message}</InlineMessage>}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setEmailUser(null);
+                emailForm.reset();
+              }}
+            >
+              取消
+            </Button>
+            <Button type="submit" loading={updateEmail.isPending} icon={<AtSign className="h-4 w-4" />}>
+              保存邮箱
             </Button>
           </div>
         </form>

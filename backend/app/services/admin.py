@@ -62,10 +62,15 @@ class AdminService:
 
     def create_user(self, data: AdminUserCreate) -> AdminUserOut:
         account = data.student_no.strip().upper()
+        email = data.email.strip().lower()
         if self.users.by_student_no(account):
             raise AppError("ACCOUNT_EXISTS", "该账号已存在", 409)
+        if self.users.by_email(email):
+            raise AppError("EMAIL_EXISTS", "该邮箱已绑定其他账号", 409)
         user = User(
             student_no=account,
+            email=email,
+            email_verified=True,
             name=data.name.strip(),
             password_hash=hash_password(data.password),
             role=data.role,
@@ -84,6 +89,13 @@ class AdminService:
             raise AppError("CANNOT_DISABLE_SELF", "不能停用当前管理员账号", 409)
         if "name" in values:
             user.name = values["name"].strip()
+        if "email" in values and values["email"] is not None:
+            email = values["email"].strip().lower()
+            existing = self.users.by_email(email)
+            if existing and existing.id != user.id:
+                raise AppError("EMAIL_EXISTS", "该邮箱已绑定其他账号", 409)
+            user.email = email
+            user.email_verified = True
         if values.get("password"):
             user.password_hash = hash_password(values["password"])
         if "is_active" in values:

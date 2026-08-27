@@ -13,6 +13,8 @@ class APIModel(BaseModel):
 class UserOut(APIModel):
     id: int
     student_no: str
+    email: str | None = None
+    email_verified: bool = False
     name: str
     role: UserRole
 
@@ -20,7 +22,9 @@ class UserOut(APIModel):
 class RegisterRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    student_no: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    student_no: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+    email: str = Field(min_length=5, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    email_code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
     name: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=6, max_length=72)
 
@@ -35,6 +39,23 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=6, max_length=72)
 
 
+class EmailCodeRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    student_no: str | None = Field(default=None, min_length=3, max_length=32)
+
+
+class PasswordResetCodeRequest(BaseModel):
+    student_no: str = Field(min_length=3, max_length=32)
+    email: str = Field(min_length=5, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class PasswordResetRequest(BaseModel):
+    student_no: str = Field(min_length=3, max_length=32)
+    email: str = Field(min_length=5, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    email_code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    new_password: str = Field(min_length=6, max_length=72)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
@@ -43,21 +64,15 @@ class TokenResponse(BaseModel):
 
 class AdminUserCreate(BaseModel):
     student_no: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+    email: str = Field(min_length=5, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     name: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=6, max_length=72)
     role: UserRole
 
-    @model_validator(mode="after")
-    def validate_student_number(self):
-        if self.role == UserRole.STUDENT and not (
-            len(self.student_no) == 6 and self.student_no.isdigit()
-        ):
-            raise ValueError("学生学号必须为 6 位数字")
-        return self
-
 
 class AdminUserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=80)
+    email: str | None = Field(default=None, min_length=5, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str | None = Field(default=None, min_length=6, max_length=72)
     is_active: bool | None = None
 

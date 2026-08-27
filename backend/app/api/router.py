@@ -20,11 +20,14 @@ from app.schemas.models import (
     ClassOut,
     DashboardOut,
     DrawOut,
+    EmailCodeRequest,
     EvaluationCreate,
     JoinClassRequest,
     LoginRequest,
     MemberOut,
     NoteUpdate,
+    PasswordResetCodeRequest,
+    PasswordResetRequest,
     RecordingOut,
     RegisterRequest,
     SessionOut,
@@ -58,9 +61,27 @@ def register(data: RegisterRequest, db: DB):
     return AuthService(db).register(data)
 
 
+@router.post("/auth/register/email-code", status_code=status.HTTP_204_NO_CONTENT)
+def send_register_email_code(data: EmailCodeRequest, db: DB):
+    AuthService(db).send_register_code(data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/auth/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: DB):
     return AuthService(db).login(data)
+
+
+@router.post("/auth/password-reset/email-code", status_code=status.HTTP_204_NO_CONTENT)
+def send_password_reset_email_code(data: PasswordResetCodeRequest, db: DB):
+    AuthService(db).send_password_reset_code(data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/auth/password-reset", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(data: PasswordResetRequest, db: DB):
+    AuthService(db).reset_password(data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/admin/auth/login", response_model=TokenResponse)
