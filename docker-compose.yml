@@ -20,6 +20,8 @@ services:
         DEBIAN_MIRROR_HOST: ${DEBIAN_MIRROR_HOST:-deb.debian.org}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     restart: unless-stopped
+    # 整个 .env 注入容器：新增配置变量无需再改本文件
+    env_file: .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://speaking:speaking_local@postgres:5432/speaking_lab}
       JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me-now}
@@ -41,6 +43,17 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       AI_IMPORT_MAX_TOPICS: ${AI_IMPORT_MAX_TOPICS:-80}
       AI_IMPORT_TIMEOUT_SECONDS: ${AI_IMPORT_TIMEOUT_SECONDS:-180}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Impromptu}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-true}
+      EMAIL_CODE_EXPIRE_MINUTES: ${EMAIL_CODE_EXPIRE_MINUTES:-10}
+      EMAIL_DAILY_LIMIT: ${EMAIL_DAILY_LIMIT:-10}
+      EMAIL_SEND_INTERVAL_SECONDS: ${EMAIL_SEND_INTERVAL_SECONDS:-60}
+      REQUIRE_VERIFIED_EMAIL: ${REQUIRE_VERIFIED_EMAIL:-true}
     volumes:
       - ./backend/uploads:/app/uploads
     depends_on:
