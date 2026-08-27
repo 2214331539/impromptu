@@ -56,6 +56,11 @@ class PasswordResetRequest(BaseModel):
     new_password: str = Field(min_length=6, max_length=72)
 
 
+class BindEmailRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    email_code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: Literal["bearer"] = "bearer"

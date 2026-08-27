@@ -5,6 +5,7 @@ interface AuthState {
   user: User | null;
   token: string | null;
   setAuth: (response: AuthResponse) => void;
+  setUser: (user: User) => void;
   logout: () => void;
 }
 
@@ -19,10 +20,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.setItem("speaking-lab-user", JSON.stringify(response.user));
     set({ token: response.access_token, user: response.user });
   },
+  setUser: (user) => {
+    localStorage.setItem("speaking-lab-user", JSON.stringify(user));
+    set({ user });
+  },
   logout: () => {
     localStorage.removeItem("speaking-lab-token");
     localStorage.removeItem("speaking-lab-user");
     set({ token: null, user: null });
   },
 }));
-

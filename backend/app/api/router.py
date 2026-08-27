@@ -15,6 +15,7 @@ from app.schemas.models import (
     AdminUserCreate,
     AdminUserOut,
     AdminUserUpdate,
+    BindEmailRequest,
     ChangePasswordRequest,
     ClassCreate,
     ClassOut,
@@ -98,6 +99,17 @@ def me(user: CurrentUser):
 def change_password(data: ChangePasswordRequest, user: CurrentUser, db: DB):
     AuthService(db).change_password(user, data)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/auth/email-code", status_code=status.HTTP_204_NO_CONTENT)
+def send_bind_email_code(data: EmailCodeRequest, user: CurrentUser, db: DB):
+    AuthService(db).send_bind_email_code(user, data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/auth/bind-email", response_model=UserOut)
+def bind_email(data: BindEmailRequest, user: CurrentUser, db: DB):
+    return AuthService(db).bind_email(user, data)
 
 
 @router.get("/admin/overview", response_model=AdminOverviewOut)

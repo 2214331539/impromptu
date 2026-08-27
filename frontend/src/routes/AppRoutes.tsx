@@ -6,6 +6,7 @@ import { AdminClassesPage } from "../pages/admin/AdminClassesPage";
 import { AdminDashboardPage } from "../pages/admin/AdminDashboardPage";
 import { AdminLoginPage } from "../pages/admin/AdminLoginPage";
 import { AuthPage } from "../pages/auth/AuthPage";
+import { ProfilePage } from "../pages/account/ProfilePage";
 import { HistoryPage } from "../pages/student/HistoryPage";
 import { StudentDashboard } from "../pages/student/StudentDashboard";
 import { TaskDetailPage } from "../pages/student/TaskDetailPage";
@@ -29,12 +30,21 @@ function Protected({ role, children }: { role: Role; children: ReactNode }) {
   return children;
 }
 
+function Authenticated({ children }: { children: ReactNode }) {
+  const user = useAuthStore((state) => state.user);
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
 export function AppRoutes() {
   const user = useAuthStore((state) => state.user);
   return <Routes>
     <Route path="/login" element={<AuthPage mode="login" />} />
     <Route path="/register" element={<AuthPage mode="register" />} />
     <Route path="/admin/login" element={<AdminLoginPage />} />
+    <Route element={<Authenticated><AppShell /></Authenticated>}>
+      <Route path="/profile" element={<ProfilePage />} />
+    </Route>
     <Route element={<Protected role="student"><AppShell /></Protected>}>
       <Route path="/app" element={<StudentDashboard />} />
       <Route path="/app/tasks" element={<TaskListPage />} />

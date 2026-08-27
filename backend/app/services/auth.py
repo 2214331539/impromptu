@@ -6,6 +6,7 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.models.entities import User, UserRole
 from app.repositories.repositories import UserRepository
 from app.schemas.models import (
+    BindEmailRequest,
     ChangePasswordRequest,
     EmailCodeRequest,
     LoginRequest,
@@ -75,6 +76,30 @@ class AuthService:
         user.password_hash = hash_password(data.new_password)
         self.db.commit()
 
+    def send_bind_email_code(self, user: User, data: EmailCodeRequest) -> None:
+        email = data.email.strip().lower()
+        owner = self.users.by_email(email)
+        if owner and owner.id != user.id:
+            raise AppError("EMAIL_EXISTS", "该邮箱已绑定其他账号", 409)
+        EmailCodeService(self.db).send(email=email, purpose="bind_email", account=user.student_no)
+
+    def bind_email(self, user: User, data: BindEmailRequest) -> User:
+        email = data.email.strip().lower()
+        owner = self.users.by_email(email)
+        if owner and owner.id != user.id:
+            raise AppError("EMAIL_EXISTS", "该邮箱已绑定其他账号", 409)
+        EmailCodeService(self.db).verify(
+            email=email,
+            purpose="bind_email",
+            code=data.email_code,
+            account=user.student_no,
+        )
+        user.email = email
+        user.email_verified = True
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
     def send_password_reset_code(self, data: PasswordResetCodeRequest) -> None:
         account = data.student_no.strip().upper()
         email = data.email.strip().lower()
@@ -113,6 +138,7 @@ class AuthService:
             require_email
             and settings.require_verified_email
             and user.role in {UserRole.STUDENT, UserRole.TEACHER}
+            and user.email
             and not user.email_verified
         ):
             raise AppError("EMAIL_NOT_VERIFIED", "请先完成邮箱验证", 403)

@@ -19,7 +19,12 @@ class Mailer:
             raise AppError("SMTP_NOT_CONFIGURED", "Email service is not configured", 503)
 
         subject = "Impromptu 邮箱验证码"
-        action = "注册验证" if purpose == "register" else "找回密码"
+        action_map = {
+            "register": "注册验证",
+            "password_reset": "找回密码",
+            "bind_email": "绑定邮箱",
+        }
+        action = action_map.get(purpose, "邮箱验证")
         message = EmailMessage()
         message["Subject"] = subject
         message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"

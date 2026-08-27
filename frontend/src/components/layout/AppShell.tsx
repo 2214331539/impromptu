@@ -1,21 +1,18 @@
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ChartNoAxesColumn,
   ClipboardList,
   History,
   House,
-  KeyRound,
   Layers3,
   LogOut,
   School,
   ShieldCheck,
+  UserRound,
   UserCog,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { z } from "zod";
 import { api } from "../../api/client";
 import { useAuthStore } from "../../stores/auth";
 import { homeForRole } from "../../utils/auth";
@@ -23,68 +20,40 @@ import { BrandLogo } from "../common/BrandLogo";
 import { Button } from "../common/Button";
 import { IcpFooter } from "../common/IcpFooter";
 import { Modal } from "../common/Modal";
-import { InlineMessage } from "../common/States";
 
 const studentNav = [
   { to: "/app", label: "首页", icon: House, end: true },
   { to: "/app/tasks", label: "训练任务", icon: ClipboardList },
   { to: "/app/history", label: "训练记录", icon: History },
+  { to: "/profile", label: "我的", icon: UserRound },
 ];
 const teacherNav = [
   { to: "/teacher", label: "工作台", icon: ChartNoAxesColumn, end: true },
   { to: "/teacher/classes", label: "班级", icon: School },
   { to: "/teacher/topics", label: "题库", icon: Layers3 },
   { to: "/teacher/tasks", label: "任务", icon: ClipboardList },
+  { to: "/profile", label: "我的", icon: UserRound },
 ];
 const adminNav = [
   { to: "/admin", label: "工作台", icon: ShieldCheck, end: true },
   { to: "/admin/accounts", label: "账号", icon: UserCog },
   { to: "/admin/classes", label: "班级", icon: School },
+  { to: "/profile", label: "我的", icon: UserRound },
 ];
-
-const passwordSchema = z
-  .object({
-    current_password: z.string().min(6, "请输入当前密码").max(72),
-    new_password: z.string().min(6, "新密码至少 6 位").max(72),
-    confirm_password: z.string().min(6, "请再次输入新密码").max(72),
-  })
-  .superRefine((values, context) => {
-    if (values.new_password !== values.confirm_password) {
-      context.addIssue({ code: "custom", path: ["confirm_password"], message: "两次输入的新密码不一致" });
-    }
-  });
-type PasswordValues = z.infer<typeof passwordSchema>;
 
 export function AppShell() {
   const { user, logout } = useAuthStore();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [emailPromptOpen, setEmailPromptOpen] = useState(false);
   const nav = user?.role === "admin" ? adminNav : user?.role === "teacher" ? teacherNav : studentNav;
-  const passwordForm = useForm<PasswordValues>({
-    resolver: zodResolver(passwordSchema),
-    defaultValues: { current_password: "", new_password: "", confirm_password: "" },
-  });
-  const changePassword = useMutation({
-    mutationFn: (values: PasswordValues) =>
-      api<void>("/auth/change-password", {
-        method: "POST",
-        body: JSON.stringify({
-          current_password: values.current_password,
-          new_password: values.new_password,
-        }),
-      }),
-    onSuccess: () => {
-      passwordForm.reset();
-      setPasswordOpen(false);
-    },
-  });
   const signOut = () => {
     const loginPath = user?.role === "admin" ? "/admin/login" : "/login";
     logout();
     queryClient.clear();
     navigate(loginPath);
   };
+  const needsEmailBinding = !!user && user.role !== "admin" && (!user.email || !user.email_verified);
 
   useEffect(() => {
     if (!user) return;
@@ -111,6 +80,14 @@ export function AppShell() {
       ]);
     }
   }, [queryClient, user]);
+
+  useEffect(() => {
+    if (!needsEmailBinding || !user) return;
+    const key = `impromptu-email-bind-notice-${user.id}`;
+    if (sessionStorage.getItem(key)) return;
+    setEmailPromptOpen(true);
+    sessionStorage.setItem(key, "shown");
+  }, [needsEmailBinding, user]);
 
   return (
     <div className="min-h-screen bg-canvas text-ink">
@@ -150,11 +127,11 @@ export function AppShell() {
             </div>
             <button
               className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-black/5 hover:text-ink"
-              onClick={() => setPasswordOpen(true)}
-              title="修改密码"
+              onClick={() => navigate("/profile")}
+              title="个人主页"
               type="button"
             >
-              <KeyRound className="h-4 w-4" />
+              <UserRound className="h-4 w-4" />
             </button>
             <button
               className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-black/5 hover:text-ink"
@@ -169,11 +146,11 @@ export function AppShell() {
             <span className="max-w-24 truncate text-xs text-muted">{user?.name}</span>
             <button
               className="grid h-10 w-10 place-items-center rounded-full text-muted hover:bg-black/5 hover:text-ink"
-              onClick={() => setPasswordOpen(true)}
-              aria-label="修改密码"
+              onClick={() => navigate("/profile")}
+              aria-label="个人主页"
               type="button"
             >
-              <KeyRound className="h-4 w-4" />
+              <UserRound className="h-4 w-4" />
             </button>
             <button
               className="grid h-10 w-10 place-items-center rounded-full text-muted hover:bg-black/5 hover:text-ink"
@@ -187,6 +164,14 @@ export function AppShell() {
         </div>
       </header>
       <main id="main-content" className="app-main mx-auto max-w-[1240px] px-4 sm:px-6 md:pb-16 lg:px-8">
+        {needsEmailBinding && (
+          <div className="mb-6 rounded-[16px] border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-[#8a5a18] sm:flex sm:items-center sm:justify-between sm:gap-4">
+            <p>你的账号还没有绑定已验证邮箱。绑定后可以通过邮箱验证码找回密码。</p>
+            <Button className="mt-3 sm:mt-0" size="sm" variant="secondary" onClick={() => navigate("/profile")}>
+              去绑定
+            </Button>
+          </div>
+        )}
         <Outlet />
         <IcpFooter className="mt-10 pb-0" />
       </main>
@@ -212,39 +197,26 @@ export function AppShell() {
           ))}
         </div>
       </nav>
-      <Modal open={passwordOpen} onClose={() => setPasswordOpen(false)} title="修改密码">
-        <form className="space-y-4" onSubmit={passwordForm.handleSubmit((values) => changePassword.mutate(values))}>
-          <div>
-            <label className="label">当前密码</label>
-            <input className="field" type="password" autoComplete="current-password" {...passwordForm.register("current_password")} />
-            {passwordForm.formState.errors.current_password && (
-              <p className="mt-1 text-xs text-danger">{passwordForm.formState.errors.current_password.message}</p>
-            )}
-          </div>
-          <div>
-            <label className="label">新密码</label>
-            <input className="field" type="password" autoComplete="new-password" {...passwordForm.register("new_password")} />
-            {passwordForm.formState.errors.new_password && (
-              <p className="mt-1 text-xs text-danger">{passwordForm.formState.errors.new_password.message}</p>
-            )}
-          </div>
-          <div>
-            <label className="label">确认新密码</label>
-            <input className="field" type="password" autoComplete="new-password" {...passwordForm.register("confirm_password")} />
-            {passwordForm.formState.errors.confirm_password && (
-              <p className="mt-1 text-xs text-danger">{passwordForm.formState.errors.confirm_password.message}</p>
-            )}
-          </div>
-          {changePassword.error && <InlineMessage>{changePassword.error.message}</InlineMessage>}
+      <Modal open={emailPromptOpen} onClose={() => setEmailPromptOpen(false)} title="绑定邮箱">
+        <div className="space-y-4">
+          <p className="text-sm leading-6 text-muted">
+            你的账号还没有绑定已验证邮箱。绑定后，如果忘记密码，可以在登录页通过邮箱验证码找回。
+          </p>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setPasswordOpen(false)}>
-              取消
+            <Button type="button" variant="ghost" onClick={() => setEmailPromptOpen(false)}>
+              稍后再说
             </Button>
-            <Button type="submit" loading={changePassword.isPending} icon={<KeyRound className="h-4 w-4" />}>
-              保存新密码
+            <Button
+              type="button"
+              onClick={() => {
+                setEmailPromptOpen(false);
+                navigate("/profile");
+              }}
+            >
+              去绑定邮箱
             </Button>
           </div>
-        </form>
+        </div>
       </Modal>
     </div>
   );

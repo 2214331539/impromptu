@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import hash_password
-from app.models.entities import EmailCode, Recording, TrainingSession
+from app.models.entities import EmailCode, Recording, TrainingSession, User, UserRole
 from app.services.topic_import import TopicImportService
 from app.services.training import TrainingService
 
@@ -130,6 +130,48 @@ def test_password_reset_uses_account_email_and_code(client: TestClient, course, 
     assert old_login.status_code == 401
     new_login = client.post("/api/v1/auth/login", json={"student_no": "900001", "password": "reset123"})
     assert new_login.status_code == 200
+
+
+def test_legacy_user_without_email_can_login_and_bind_email(client: TestClient, db_session: Session):
+    db_session.add(
+        User(
+            student_no="LEGACY01",
+            email=None,
+            email_verified=False,
+            name="Legacy User",
+            password_hash=hash_password("password123"),
+            role=UserRole.STUDENT,
+        )
+    )
+    db_session.add(
+        User(
+            student_no="OWNER01",
+            email="owned@example.test",
+            email_verified=True,
+            name="Email Owner",
+            password_hash=hash_password("password123"),
+            role=UserRole.STUDENT,
+        )
+    )
+    db_session.commit()
+    login = client.post("/api/v1/auth/login", json={"student_no": "LEGACY01", "password": "password123"})
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    duplicate = client.post("/api/v1/auth/email-code", headers=headers, json={"email": "owned@example.test"})
+    assert duplicate.status_code == 409
+
+    requested = client.post("/api/v1/auth/email-code", headers=headers, json={"email": "legacy@example.test"})
+    assert requested.status_code == 204, requested.text
+    set_test_email_code(db_session, "legacy@example.test", "bind_email", "LEGACY01")
+    bound = client.post(
+        "/api/v1/auth/bind-email",
+        headers=headers,
+        json={"email": "legacy@example.test", "email_code": "111111"},
+    )
+    assert bound.status_code == 200, bound.text
+    assert bound.json()["email"] == "legacy@example.test"
+    assert bound.json()["email_verified"] is True
 
 
 def test_email_code_send_has_sixty_second_interval(client: TestClient, course):
