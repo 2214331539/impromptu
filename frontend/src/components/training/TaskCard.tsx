@@ -8,7 +8,7 @@ export function TaskCard({ task }: { task: Task }) {
   const complete = task.my_phase === "submitted";
   return <Link to={`/app/tasks/${task.id}`} className="surface group block p-5 transition hover:-translate-y-0.5 hover:border-black/[.14]">
     <div className="flex items-start justify-between gap-4">
-      <div><div className="flex flex-wrap items-center gap-2"><Badge tone={complete ? "green" : task.status === "published" ? "blue" : "neutral"}>{complete ? "已完成" : task.my_phase ? phaseLabel[task.my_phase] : taskStatusLabel[task.status]}</Badge><span className="text-xs text-muted">截止 {formatDate(task.due_at)}</span></div><h3 className="mt-3 text-[17px] font-semibold leading-6">{task.name}</h3></div>
+      <div><div className="flex flex-wrap items-center gap-2"><Badge tone={complete ? "green" : task.status === "published" ? "blue" : "neutral"}>{complete ? "已完成" : task.my_return_pending ? "已退回 · 待重交" : task.my_phase ? phaseLabel[task.my_phase] : taskStatusLabel[task.status]}</Badge><span className="text-xs text-muted">截止 {formatDate(task.due_at)}</span></div><h3 className="mt-3 text-[17px] font-semibold leading-6">{task.name}</h3></div>
       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-black/[.035] text-muted transition group-hover:bg-accent group-hover:text-white"><ArrowRight className="h-4 w-4" /></span>
     </div>
     <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted">{task.description || "完成本次随机口语训练。"}</p>

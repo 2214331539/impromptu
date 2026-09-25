@@ -21,12 +21,13 @@ export interface Task {
   research_seconds: number; preparation_seconds: number; speaking_seconds: number; starts_at: string; due_at: string;
   redraw_limit: number; rerecord_limit: number; notes_required: boolean; allow_early_finish: boolean;
   status: TaskStatus; participant_count: number; completed_count: number; completion_rate: number;
-  my_session_id: number | null; my_phase: SessionPhase | null;
+  my_session_id: number | null; my_phase: SessionPhase | null; my_return_pending: boolean;
 }
 export interface Draw { id: number; draw_number: number; confirmed: boolean; topic: Topic; redraws_remaining: number }
 export interface Recording { id: number; url: string; download_url: string; stream_url: string; mime_type: string; size_bytes: number; duration_seconds: number; attempt_number: number; is_selected: boolean }
 export interface Evaluation { id: number; content_accuracy: number; logical_structure: number; fluency: number; vocabulary: number; time_control: number; total_score: number; comment: string; published_at: string }
 export interface TrainingSession {
+  return_history: { reason: string; returned_at: string; teacher_id: number; submitted_at: string | null; recording_id: number | null; evaluation: Evaluation | null }[];
   id: number; task_id: number; student_id: number; student_name: string; student_no: string; phase: SessionPhase;
   final_topic: Topic | null; current_draw: Draw | null; draw_count: number; redraws_remaining: number;
   research_started_at: string | null; research_ends_at: string | null;

@@ -37,6 +37,7 @@ def task_out(task: TrainingTask, current_user_id: int | None = None) -> TaskOut:
         completion_rate=round(completed_count / participant_count * 100, 1) if participant_count else 0,
         my_session_id=my_session.id if my_session else None,
         my_phase=my_session.phase if my_session else None,
+        my_return_pending=bool(my_session and my_session.return_history and my_session.phase != SessionPhase.SUBMITTED),
     )
 
 
@@ -89,7 +90,7 @@ class TaskService:
             raise AppError("TASK_ALREADY_STARTED", "已有学生开始训练，不能更换班级或题库", 409)
         if data.topic_bank_id != task.topic_bank_id and not any(topic.is_active for topic in bank.topics):
             raise AppError("EMPTY_BANK", "题库中没有启用的题目", 400)
-        if any(len(s.draws) > data.redraw_limit + 1 or s.recording_attempts_started > data.rerecord_limit + 1 for s in task.sessions):
+        if any(len(s.draws) > data.redraw_limit + 1 or s.recording_attempts_started > data.rerecord_limit + 1 + len(s.return_history) for s in task.sessions):
             raise AppError("TASK_LIMIT_USED", "次数不能少于学生已经使用的次数", 409)
         for key, value in data.model_dump().items():
             setattr(task, key, value)

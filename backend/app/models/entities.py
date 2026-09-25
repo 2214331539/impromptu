@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -218,6 +219,7 @@ class TrainingSession(Base, TimestampMixin):
     speaking_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     speaking_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recording_attempts_started: Mapped[int] = mapped_column(Integer, default=0)
+    return_history: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     self_assessment: Mapped[str] = mapped_column(Text, default="")
 

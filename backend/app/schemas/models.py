@@ -281,6 +281,7 @@ class TaskOut(APIModel):
     completion_rate: float = 0
     my_session_id: int | None = None
     my_phase: SessionPhase | None = None
+    my_return_pending: bool = False
 
 
 class DrawOut(BaseModel):
@@ -348,6 +349,7 @@ class SessionOut(BaseModel):
     speaking_finished_at: datetime | None
     recording_attempts_started: int
     rerecords_remaining: int
+    return_history: list[dict] = Field(default_factory=list)
     submitted_at: datetime | None
     note: str
     note_locked: bool
@@ -365,6 +367,10 @@ class FinishSpeakingRequest(BaseModel):
 class SubmitSessionRequest(BaseModel):
     self_assessment: str = Field(default="", max_length=3000)
     recording_id: int
+
+
+class ReturnSessionRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 class WritingAssignmentCreate(BaseModel):

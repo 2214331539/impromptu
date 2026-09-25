@@ -31,6 +31,7 @@ from app.schemas.models import (
     PasswordResetRequest,
     RecordingOut,
     RegisterRequest,
+    ReturnSessionRequest,
     SessionOut,
     SubmitSessionRequest,
     TaskCreate,
@@ -565,6 +566,11 @@ def stream_recording(recording_id: int, user: CurrentUser, db: DB):
 @router.post("/sessions/{session_id}/submit", response_model=SessionOut)
 def submit_session(session_id: int, data: SubmitSessionRequest, student: Student, db: DB):
     return TrainingService(db).submit(student, session_id, data)
+
+
+@router.post("/sessions/{session_id}/return", response_model=SessionOut)
+def return_session(session_id: int, data: ReturnSessionRequest, teacher: Teacher, db: DB):
+    return TrainingService(db).return_submission(teacher, session_id, data.reason)
 
 
 @router.put("/sessions/{session_id}/evaluation", response_model=SessionOut)

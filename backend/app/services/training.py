@@ -222,7 +222,7 @@ class TrainingService:
         session = self._student_session(student.id, session_id, lock=True)
         if session.phase != SessionPhase.REVIEW:
             raise AppError("INVALID_PHASE", "当前不能重新录制", 409)
-        if session.recording_attempts_started >= session.task.rerecord_limit + 1:
+        if session.recording_attempts_started >= session.task.rerecord_limit + 1 + len(session.return_history):
             raise AppError("RERECORD_LIMIT", "重新录制次数已用完", 409)
         now = utc_now()
         session.phase = SessionPhase.SPEAKING
@@ -259,7 +259,7 @@ class TrainingService:
         if mime_type not in self.allowed_mime_types:
             raise AppError("INVALID_AUDIO_TYPE", "仅支持 WebM、OGG、M4A、MP3 或 WAV 音频", 415)
         attempt = session.recording_attempts_started
-        if attempt <= 0 or attempt > session.task.rerecord_limit + 1:
+        if attempt <= 0 or attempt > session.task.rerecord_limit + 1 + len(session.return_history):
             raise AppError("RERECORD_LIMIT", "重新录制次数已用完", 409)
         existing = next((item for item in session.recordings if item.attempt_number == attempt), None)
         if existing:
@@ -449,6 +449,32 @@ class TrainingService:
         self.db.commit()
         return self._out(self.sessions.get(session_id))
 
+    def return_submission(self, teacher: User, session_id: int, reason: str) -> SessionOut:
+        session = self.sessions.get(session_id, for_update=True)
+        if not session or session.task.teacher_id != teacher.id:
+            raise AppError("SESSION_NOT_FOUND", "提交不存在或无权访问", 404)
+        if session.phase != SessionPhase.SUBMITTED:
+            raise AppError("NOT_SUBMITTED", "只能退回已提交的口语作业，请刷新页面", 409)
+        if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
+            raise AppError("TASK_CLOSED", "请先重新开放任务并延长截止时间，再退回作业", 409)
+        if not reason.strip():
+            raise AppError("RETURN_REASON_REQUIRED", "请填写退回原因", 400)
+        session.return_history = [*session.return_history, {
+            "reason": reason.strip(),
+            "returned_at": utc_now().isoformat(),
+            "teacher_id": teacher.id,
+            "submitted_at": aware(session.submitted_at).isoformat() if session.submitted_at else None,
+            "recording_id": next((r.id for r in session.recordings if r.is_selected), None),
+            "evaluation": EvaluationOut.model_validate(session.evaluation).model_dump(mode="json") if session.evaluation else None,
+        }]
+        session.evaluation = None
+        session.phase = SessionPhase.REVIEW
+        session.submitted_at = None
+        if session.note:
+            session.note.locked = False
+        self.db.commit()
+        return self._out(self.sessions.get(session_id))
+
     def evaluate(
         self, teacher: User, session_id: int, data: EvaluationCreate
     ) -> SessionOut:
@@ -542,8 +568,9 @@ class TrainingService:
             speaking_ends_at=session.speaking_ends_at,
             speaking_finished_at=session.speaking_finished_at,
             recording_attempts_started=session.recording_attempts_started,
+            return_history=session.return_history,
             rerecords_remaining=max(
-                0, session.task.rerecord_limit + 1 - session.recording_attempts_started
+                0, session.task.rerecord_limit + 1 + len(session.return_history) - session.recording_attempts_started
             ),
             submitted_at=session.submitted_at,
             note=session.note.content if session.note else "",
