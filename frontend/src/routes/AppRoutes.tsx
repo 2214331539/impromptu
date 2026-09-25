@@ -12,8 +12,15 @@ import { StudentDashboard } from "../pages/student/StudentDashboard";
 import { TaskDetailPage } from "../pages/student/TaskDetailPage";
 import { TaskListPage } from "../pages/student/TaskListPage";
 import { TrainingPage } from "../pages/student/TrainingPage";
+import { WritingListPage } from "../pages/student/WritingListPage";
+import { WritingTaskDetailPage } from "../pages/student/WritingTaskDetailPage";
+import { WritingPage } from "../pages/student/WritingPage";
 import { ClassesPage } from "../pages/teacher/ClassesPage";
 import { EvaluationPage } from "../pages/teacher/EvaluationPage";
+import { WritingAssignmentCreatePage } from "../pages/teacher/WritingAssignmentCreatePage";
+import { WritingAssignmentsPage } from "../pages/teacher/WritingAssignmentsPage";
+import { WritingReviewPage } from "../pages/teacher/WritingReviewPage";
+import { WritingSubmissionsPage } from "../pages/teacher/WritingSubmissionsPage";
 import { SubmissionsPage } from "../pages/teacher/SubmissionsPage";
 import { TaskCreatePage } from "../pages/teacher/TaskCreatePage";
 import { TasksPage } from "../pages/teacher/TasksPage";
@@ -52,15 +59,24 @@ export function AppRoutes() {
       <Route path="/app/training/:sessionId" element={<TrainingPage />} />
       <Route path="/app/history" element={<HistoryPage />} />
       <Route path="/app/history/:sessionId" element={<HistoryPage />} />
+      <Route path="/app/writing" element={<WritingListPage />} />
+      <Route path="/app/writing/:assignmentId" element={<WritingTaskDetailPage />} />
+      <Route path="/app/writing/session/:submissionId" element={<WritingPage />} />
     </Route>
     <Route element={<Protected role="teacher"><AppShell /></Protected>}>
       <Route path="/teacher" element={<TeacherDashboard />} />
       <Route path="/teacher/classes" element={<ClassesPage />} />
       <Route path="/teacher/topics" element={<TopicsPage />} />
       <Route path="/teacher/tasks" element={<TasksPage />} />
-      <Route path="/teacher/tasks/new" element={<TaskCreatePage />} />
+      <Route path="/teacher/tasks/new" element={<TaskCreatePage key="new" />} />
+      <Route path="/teacher/tasks/:taskId/edit" element={<TaskCreatePage />} />
       <Route path="/teacher/tasks/:taskId/submissions" element={<SubmissionsPage />} />
       <Route path="/teacher/evaluations/:sessionId" element={<EvaluationPage />} />
+      <Route path="/teacher/writing" element={<WritingAssignmentsPage />} />
+      <Route path="/teacher/writing/new" element={<WritingAssignmentCreatePage key="new" />} />
+      <Route path="/teacher/writing/:assignmentId/edit" element={<WritingAssignmentCreatePage />} />
+      <Route path="/teacher/writing/:assignmentId/submissions" element={<WritingSubmissionsPage />} />
+      <Route path="/teacher/writing/submissions/:submissionId" element={<WritingReviewPage />} />
     </Route>
     <Route element={<Protected role="admin"><AppShell /></Protected>}>
       <Route path="/admin" element={<AdminDashboardPage />} />

@@ -37,7 +37,9 @@ function rememberDevice(deviceId: string): void {
   }
 }
 
-export function useRecorder() {
+export function useRecorder(onCheckpoint?: (result: RecordingResult) => void) {
+  const checkpointRef = useRef(onCheckpoint);
+  checkpointRef.current = onCheckpoint;
   const [permission, setPermission] = useState<PermissionState>("idle");
   const [recording, setRecording] = useState(false);
   const [volume, setVolume] = useState(0);
@@ -205,7 +207,12 @@ export function useRecorder() {
     const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
     const recorder = new MediaRecorder(stream, preferred ? { mimeType: preferred, audioBitsPerSecond: 128_000 } : { audioBitsPerSecond: 128_000 });
     chunksRef.current = [];
-    recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
+    const checkpoint = checkpointRef.current;
+    recorder.ondataavailable = (event) => {
+      if (!event.data.size) return;
+      chunksRef.current.push(event.data);
+      checkpoint?.({ blob: new Blob(chunksRef.current, { type: recorder.mimeType || event.data.type }), duration: (performance.now() - startedAtRef.current) / 1000 });
+    };
     recorder.onerror = () => setRecording(false);
     recorder.start(500);
     recorderRef.current = recorder;

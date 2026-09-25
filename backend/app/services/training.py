@@ -486,6 +486,9 @@ class TrainingService:
         session = self.sessions.get(session_id, for_update=lock)
         if not session or session.student_id != student_id:
             raise AppError("SESSION_NOT_FOUND", "训练记录不存在", 404)
+        if session.phase != SessionPhase.SUBMITTED:
+            if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
+                raise AppError("TASK_CLOSED", "口语任务已关闭或截止，进度已保留", 409)
         return session
 
     def _accessible(self, user: User, session_id: int) -> TrainingSession:

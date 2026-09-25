@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 
 from app.api.deps import Admin, CurrentUser, DB, Student, Teacher
 from app.core.exceptions import AppError
-from app.models.entities import TaskStatus, UserRole
+from app.models.entities import TaskStatus, UserRole, WritingAssignmentStatus
 from app.schemas.models import (
     AdminClassCreate,
     AdminClassOut,
@@ -44,7 +44,19 @@ from app.schemas.models import (
     TopicImportPreviewOut,
     TopicOut,
     TopicUpdate,
+    TopicAppendRequest,
     UserOut,
+    WritingAssignmentCreate,
+    WritingAssignmentOut,
+    WritingDraftUpdate,
+    WritingIntegrityRequest,
+    WritingPresenceEnterRequest,
+    WritingPresenceHeartbeatRequest,
+    WritingPresenceLeaveRequest,
+    WritingSubmissionOut,
+    WritingSubmitRequest,
+    WritingTeacherSubmissionDetail,
+    WritingTeacherSubmissionSummary,
 )
 from app.services.admin import AdminService
 from app.services.auth import AuthService
@@ -53,8 +65,24 @@ from app.services.dashboard import DashboardService
 from app.services.tasks import TaskService
 from app.services.topic_import import TopicImportService
 from app.services.training import TrainingService
+from app.services.writing import WritingService
 
 router = APIRouter()
+
+
+@router.post("/topic-banks/{bank_id}/topics/batch", response_model=TopicImportCommitOut)
+def append_topics(bank_id: int, data: TopicAppendRequest, teacher: Teacher, db: DB):
+    return TopicService(db).append_topics(teacher, bank_id, data.topics)
+
+
+@router.put("/tasks/{task_id}", response_model=TaskOut)
+def update_task(task_id: int, data: TaskCreate, teacher: Teacher, db: DB):
+    return TaskService(db).update(teacher, task_id, data)
+
+
+@router.put("/writing/assignments/{assignment_id}", response_model=WritingAssignmentOut)
+def update_writing_assignment(assignment_id: int, data: WritingAssignmentCreate, teacher: Teacher, db: DB):
+    return WritingService(db).update_assignment(teacher, assignment_id, data)
 
 
 @router.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -166,6 +194,151 @@ def dashboard(user: CurrentUser, db: DB):
     if user.role == UserRole.STUDENT:
         return service.for_student(user)
     raise AppError("FORBIDDEN", "系统管理员请使用管理工作台", 403)
+
+
+@router.get("/writing/assignments", response_model=list[WritingAssignmentOut])
+def list_writing_assignments(user: CurrentUser, db: DB):
+    return WritingService(db).list_for(user)
+
+
+@router.get("/writing/assignments/{assignment_id}", response_model=WritingAssignmentOut)
+def get_writing_assignment(assignment_id: int, user: CurrentUser, db: DB):
+    return WritingService(db).get_assignment_for(user, assignment_id)
+
+
+@router.post(
+    "/writing/assignments",
+    response_model=WritingAssignmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_writing_assignment(data: WritingAssignmentCreate, teacher: Teacher, db: DB):
+    return WritingService(db).create_assignment(teacher, data)
+
+
+@router.post(
+    "/writing/assignments/{assignment_id}/publish",
+    response_model=WritingAssignmentOut,
+)
+def publish_writing_assignment(assignment_id: int, teacher: Teacher, db: DB):
+    return WritingService(db).set_status(
+        teacher, assignment_id, WritingAssignmentStatus.PUBLISHED
+    )
+
+
+@router.post(
+    "/writing/assignments/{assignment_id}/close",
+    response_model=WritingAssignmentOut,
+)
+def close_writing_assignment(assignment_id: int, teacher: Teacher, db: DB):
+    return WritingService(db).set_status(
+        teacher, assignment_id, WritingAssignmentStatus.CLOSED
+    )
+
+
+@router.post(
+    "/writing/assignments/{assignment_id}/submissions",
+    response_model=WritingSubmissionOut,
+)
+def start_writing_submission(assignment_id: int, student: Student, db: DB):
+    return WritingService(db).create_or_get_submission(student, assignment_id)
+
+
+@router.get("/writing/assignments/{assignment_id}/submissions", response_model=list[WritingTeacherSubmissionSummary])
+def writing_assignment_submissions(assignment_id: int, teacher: Teacher, db: DB):
+    return WritingService(db).teacher_submissions(teacher, assignment_id)
+
+
+@router.get("/writing/submissions/{submission_id}", response_model=WritingSubmissionOut)
+def get_writing_submission(submission_id: int, user: CurrentUser, db: DB):
+    return WritingService(db).get_submission_for(user, submission_id)
+
+
+@router.get(
+    "/writing/submissions/{submission_id}/teacher",
+    response_model=WritingTeacherSubmissionDetail,
+)
+def get_writing_teacher_submission(submission_id: int, teacher: Teacher, db: DB):
+    return WritingService(db).teacher_submission_detail(teacher, submission_id)
+
+
+@router.patch(
+    "/writing/submissions/{submission_id}/draft",
+    response_model=WritingSubmissionOut,
+)
+def save_writing_draft(submission_id: int, data: WritingDraftUpdate, student: Student, db: DB):
+    return WritingService(db).save_draft(student, submission_id, data)
+
+
+@router.post(
+    "/writing/submissions/{submission_id}/submit",
+    response_model=WritingSubmissionOut,
+)
+def submit_writing(submission_id: int, data: WritingSubmitRequest, student: Student, db: DB):
+    return WritingService(db).submit(student, submission_id, data)
+
+
+@router.post(
+    "/writing/submissions/{submission_id}/retry-grammar",
+    response_model=WritingSubmissionOut,
+)
+def retry_writing_grammar(submission_id: int, student: Student, db: DB):
+    return WritingService(db).retry_grammar(student, submission_id)
+
+
+@router.post(
+    "/writing/submissions/{submission_id}/presence/enter",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def writing_presence_enter(
+    submission_id: int,
+    data: WritingPresenceEnterRequest,
+    student: Student,
+    db: DB,
+):
+    WritingService(db).presence_enter(student, submission_id, data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/writing/submissions/{submission_id}/presence/heartbeat",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def writing_presence_heartbeat(
+    submission_id: int,
+    data: WritingPresenceHeartbeatRequest,
+    student: Student,
+    db: DB,
+):
+    WritingService(db).presence_heartbeat(student, submission_id, data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/writing/submissions/{submission_id}/presence/leave",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def writing_presence_leave(
+    submission_id: int,
+    data: WritingPresenceLeaveRequest,
+    student: Student,
+    db: DB,
+):
+    WritingService(db).presence_leave(student, submission_id, data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/writing/submissions/{submission_id}/integrity",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def writing_integrity_event(
+    submission_id: int,
+    data: WritingIntegrityRequest,
+    student: Student,
+    db: DB,
+):
+    WritingService(db).integrity_event(student, submission_id, data)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/classes", response_model=list[ClassOut])

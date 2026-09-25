@@ -21,6 +21,12 @@ from app.models.entities import (
     TrainingTask,
     User,
     UserRole,
+    WritingAssignment,
+    WritingGrammarIssue,
+    WritingIntegrityEvent,
+    WritingPresenceVisit,
+    WritingRevision,
+    WritingSubmission,
 )
 from app.repositories.repositories import UserRepository
 from app.schemas.models import (
@@ -128,10 +134,24 @@ class AdminService:
         bank_ids: list[int] = []
         task_ids: list[int] = []
         session_ids: list[int] = []
+        writing_submission_ids: list[int] = []
 
         if user.role == UserRole.TEACHER:
             class_ids = list(self.db.scalars(select(ClassRoom.id).where(ClassRoom.teacher_id == user.id)))
             bank_ids = list(self.db.scalars(select(TopicBank.id).where(TopicBank.teacher_id == user.id)))
+            writing_assignment_ids = list(
+                self.db.scalars(
+                    select(WritingAssignment.id).where(WritingAssignment.teacher_id == user.id)
+                )
+            )
+            if writing_assignment_ids:
+                writing_submission_ids = list(
+                    self.db.scalars(
+                        select(WritingSubmission.id).where(
+                            WritingSubmission.assignment_id.in_(writing_assignment_ids)
+                        )
+                    )
+                )
             task_conditions = [TrainingTask.teacher_id == user.id]
             if class_ids:
                 task_conditions.append(TrainingTask.class_id.in_(class_ids))
@@ -143,21 +163,34 @@ class AdminService:
             session_ids.extend(
                 self.db.scalars(select(TrainingSession.id).where(TrainingSession.student_id == user.id))
             )
+            writing_submission_ids.extend(
+                self.db.scalars(
+                    select(WritingSubmission.id).where(WritingSubmission.student_id == user.id)
+                )
+            )
 
         if task_ids:
             session_ids.extend(
                 self.db.scalars(select(TrainingSession.id).where(TrainingSession.task_id.in_(task_ids)))
             )
         session_ids = list(dict.fromkeys(session_ids))
+        writing_submission_ids = list(dict.fromkeys(writing_submission_ids))
 
         self._delete_recording_files(session_ids)
         self._delete_session_tree(session_ids)
+        self._delete_writing_submission_tree(writing_submission_ids)
 
         if user.role == UserRole.STUDENT:
             self.db.execute(delete(ClassMember).where(ClassMember.student_id == user.id))
 
         if user.role == UserRole.TEACHER:
             self.db.execute(delete(Evaluation).where(Evaluation.teacher_id == user.id))
+            if writing_assignment_ids:
+                self.db.execute(
+                    delete(WritingAssignment).where(
+                        WritingAssignment.id.in_(writing_assignment_ids)
+                    )
+                )
             if task_ids:
                 self.db.execute(delete(TrainingTask).where(TrainingTask.id.in_(task_ids)))
             if class_ids:
@@ -259,6 +292,31 @@ class AdminService:
         self.db.execute(delete(TrainingNote).where(TrainingNote.session_id.in_(session_ids)))
         self.db.execute(delete(TopicDrawRecord).where(TopicDrawRecord.session_id.in_(session_ids)))
         self.db.execute(delete(TrainingSession).where(TrainingSession.id.in_(session_ids)))
+
+    def _delete_writing_submission_tree(self, submission_ids: list[int]) -> None:
+        if not submission_ids:
+            return
+        revision_ids = list(
+            self.db.scalars(
+                select(WritingRevision.id).where(WritingRevision.submission_id.in_(submission_ids))
+            )
+        )
+        if revision_ids:
+            self.db.execute(
+                delete(WritingGrammarIssue).where(WritingGrammarIssue.revision_id.in_(revision_ids))
+            )
+        self.db.execute(
+            delete(WritingRevision).where(WritingRevision.submission_id.in_(submission_ids))
+        )
+        self.db.execute(
+            delete(WritingIntegrityEvent).where(WritingIntegrityEvent.submission_id.in_(submission_ids))
+        )
+        self.db.execute(
+            delete(WritingPresenceVisit).where(WritingPresenceVisit.submission_id.in_(submission_ids))
+        )
+        self.db.execute(
+            delete(WritingSubmission).where(WritingSubmission.id.in_(submission_ids))
+        )
 
     def _delete_recording_files(self, session_ids: list[int]) -> None:
         if not session_ids:

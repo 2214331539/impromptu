@@ -6,13 +6,17 @@ import {
   House,
   Layers3,
   LogOut,
+  PenLine,
   School,
   ShieldCheck,
   UserRound,
   UserCog,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { ResumeTask } from "../common/ResumeTask";
+import { PagePosition } from "./PagePosition";
+import { confirmTaskExit } from "../../utils/taskCache";
 import { api } from "../../api/client";
 import { useAuthStore } from "../../stores/auth";
 import { homeForRole } from "../../utils/auth";
@@ -23,7 +27,8 @@ import { Modal } from "../common/Modal";
 
 const studentNav = [
   { to: "/app", label: "首页", icon: House, end: true },
-  { to: "/app/tasks", label: "训练任务", icon: ClipboardList },
+  { to: "/app/tasks", label: "口语任务", icon: ClipboardList },
+  { to: "/app/writing", label: "写作任务", icon: PenLine },
   { to: "/app/history", label: "训练记录", icon: History },
   { to: "/profile", label: "我的", icon: UserRound },
 ];
@@ -31,7 +36,8 @@ const teacherNav = [
   { to: "/teacher", label: "工作台", icon: ChartNoAxesColumn, end: true },
   { to: "/teacher/classes", label: "班级", icon: School },
   { to: "/teacher/topics", label: "题库", icon: Layers3 },
-  { to: "/teacher/tasks", label: "任务", icon: ClipboardList },
+  { to: "/teacher/tasks", label: "口语任务", icon: ClipboardList },
+  { to: "/teacher/writing", label: "写作任务", icon: PenLine },
   { to: "/profile", label: "我的", icon: UserRound },
 ];
 const adminNav = [
@@ -45,9 +51,11 @@ export function AppShell() {
   const { user, logout } = useAuthStore();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [emailPromptOpen, setEmailPromptOpen] = useState(false);
   const nav = user?.role === "admin" ? adminNav : user?.role === "teacher" ? teacherNav : studentNav;
-  const signOut = () => {
+  const signOut = async () => {
+    if (confirmTaskExit && !(await confirmTaskExit())) return;
     const loginPath = user?.role === "admin" ? "/admin/login" : "/login";
     logout();
     queryClient.clear();
@@ -64,6 +72,7 @@ export function AppShell() {
         prefetch(["dashboard"], "/dashboard"),
         prefetch(["tasks"], "/tasks"),
         prefetch(["history"], "/sessions/history"),
+        prefetch(["writing-assignments"], "/writing/assignments"),
       ]);
     } else if (user.role === "teacher") {
       void Promise.all([
@@ -71,6 +80,7 @@ export function AppShell() {
         prefetch(["classes"], "/classes"),
         prefetch(["topic-banks"], "/topic-banks"),
         prefetch(["tasks"], "/tasks"),
+        prefetch(["writing-assignments"], "/writing/assignments"),
       ]);
     } else {
       void Promise.all([
@@ -172,6 +182,8 @@ export function AppShell() {
             </Button>
           </div>
         )}
+        {(pathname === "/app" || pathname === "/teacher") && <ResumeTask />}
+        <PagePosition />
         <Outlet />
         <IcpFooter className="mt-10 pb-0" />
       </main>

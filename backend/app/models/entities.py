@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin
+from app.db.base import Base, TimestampMixin, utc_now
 
 
 class UserRole(StrEnum):
@@ -45,6 +45,30 @@ class Difficulty(StrEnum):
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
+
+
+class WritingAssignmentStatus(StrEnum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    CLOSED = "closed"
+
+
+class WritingGrammarHintMode(StrEnum):
+    OFF = "off"
+    AFTER_SUBMIT = "after_submit"
+
+
+class WritingSubmissionStatus(StrEnum):
+    DRAFTING = "drafting"
+    REVISING = "revising"
+    FINALIZED = "finalized"
+
+
+class WritingGrammarStatus(StrEnum):
+    NOT_APPLICABLE = "not_applicable"
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class User(Base, TimestampMixin):
@@ -286,3 +310,173 @@ class Evaluation(Base, TimestampMixin):
 
     session: Mapped[TrainingSession] = relationship(back_populates="evaluation")
     teacher: Mapped[User] = relationship()
+
+
+class WritingAssignment(Base, TimestampMixin):
+    __tablename__ = "writing_assignments"
+    __table_args__ = (
+        CheckConstraint("min_words >= 0", name="ck_writing_assignment_min_words"),
+        CheckConstraint("max_words IS NULL OR max_words > 0", name="ck_writing_assignment_max_words"),
+        CheckConstraint("revision_limit >= 0", name="ck_writing_assignment_revision_limit"),
+        Index("ix_writing_assignments_class_status", "class_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    instructions: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[WritingAssignmentStatus] = mapped_column(
+        Enum(WritingAssignmentStatus, native_enum=False),
+        default=WritingAssignmentStatus.DRAFT,
+        index=True,
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    min_words: Mapped[int] = mapped_column(Integer, default=0)
+    max_words: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    grammar_hint_mode: Mapped[WritingGrammarHintMode] = mapped_column(
+        Enum(WritingGrammarHintMode, native_enum=False),
+        default=WritingGrammarHintMode.OFF,
+    )
+    revision_limit: Mapped[int] = mapped_column(Integer, default=1)
+    allow_late_submission: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    classroom: Mapped[ClassRoom] = relationship()
+    teacher: Mapped[User] = relationship()
+    submissions: Mapped[list["WritingSubmission"]] = relationship(
+        back_populates="assignment", cascade="all, delete-orphan"
+    )
+
+
+class WritingSubmission(Base, TimestampMixin):
+    __tablename__ = "writing_submissions"
+    __table_args__ = (
+        UniqueConstraint("assignment_id", "student_id", name="uq_writing_assignment_student"),
+        Index("ix_writing_submissions_assignment_status", "assignment_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    assignment_id: Mapped[int] = mapped_column(
+        ForeignKey("writing_assignments.id", ondelete="CASCADE"), index=True
+    )
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    status: Mapped[WritingSubmissionStatus] = mapped_column(
+        Enum(WritingSubmissionStatus, native_enum=False),
+        default=WritingSubmissionStatus.DRAFTING,
+        index=True,
+    )
+    draft_content: Mapped[str] = mapped_column(Text, default="")
+    draft_word_count: Mapped[int] = mapped_column(Integer, default=0)
+    draft_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    first_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    final_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    latest_revision_id: Mapped[int | None] = mapped_column(
+        ForeignKey("writing_revisions.id", use_alter=True, name="fk_writing_submission_latest_revision"),
+        nullable=True,
+    )
+
+    assignment: Mapped[WritingAssignment] = relationship(back_populates="submissions")
+    student: Mapped[User] = relationship()
+    revisions: Mapped[list["WritingRevision"]] = relationship(
+        back_populates="submission",
+        cascade="all, delete-orphan",
+        order_by="WritingRevision.revision_number",
+        foreign_keys="WritingRevision.submission_id",
+    )
+    visits: Mapped[list["WritingPresenceVisit"]] = relationship(
+        back_populates="submission", cascade="all, delete-orphan"
+    )
+    integrity_events: Mapped[list["WritingIntegrityEvent"]] = relationship(
+        back_populates="submission", cascade="all, delete-orphan"
+    )
+
+
+class WritingRevision(Base, TimestampMixin):
+    __tablename__ = "writing_revisions"
+    __table_args__ = (
+        UniqueConstraint("submission_id", "revision_number", name="uq_writing_revision_number"),
+        UniqueConstraint("submission_id", "client_submit_id", name="uq_writing_revision_client_submit"),
+        CheckConstraint("revision_number >= 0", name="ck_writing_revision_number"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(
+        ForeignKey("writing_submissions.id", ondelete="CASCADE"), index=True
+    )
+    revision_number: Mapped[int] = mapped_column(Integer)
+    client_submit_id: Mapped[str] = mapped_column(String(64))
+    content: Mapped[str] = mapped_column(Text)
+    word_count: Mapped[int] = mapped_column(Integer)
+    grammar_status: Mapped[WritingGrammarStatus] = mapped_column(
+        Enum(WritingGrammarStatus, native_enum=False),
+        default=WritingGrammarStatus.PENDING,
+        index=True,
+    )
+    grammar_issue_count: Mapped[int] = mapped_column(Integer, default=0)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    submission: Mapped[WritingSubmission] = relationship(
+        back_populates="revisions", foreign_keys="WritingRevision.submission_id"
+    )
+    issues: Mapped[list["WritingGrammarIssue"]] = relationship(
+        back_populates="revision", cascade="all, delete-orphan"
+    )
+
+
+class WritingGrammarIssue(Base, TimestampMixin):
+    __tablename__ = "writing_grammar_issues"
+    __table_args__ = (
+        CheckConstraint("start_offset >= 0", name="ck_writing_issue_start"),
+        CheckConstraint("end_offset > start_offset", name="ck_writing_issue_end"),
+        Index("ix_writing_issues_revision_start", "revision_id", "start_offset"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    revision_id: Mapped[int] = mapped_column(
+        ForeignKey("writing_revisions.id", ondelete="CASCADE"), index=True
+    )
+    start_offset: Mapped[int] = mapped_column(Integer)
+    end_offset: Mapped[int] = mapped_column(Integer)
+    segment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    category: Mapped[str] = mapped_column(String(64), default="grammar")
+    message: Mapped[str] = mapped_column(String(255))
+
+    revision: Mapped[WritingRevision] = relationship(back_populates="issues")
+
+
+class WritingPresenceVisit(Base, TimestampMixin):
+    __tablename__ = "writing_presence_visits"
+    __table_args__ = (
+        UniqueConstraint("submission_id", "client_visit_id", name="uq_writing_visit_client"),
+        Index("ix_writing_visits_submission_started", "submission_id", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(
+        ForeignKey("writing_submissions.id", ondelete="CASCADE"), index=True
+    )
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    client_visit_id: Mapped[str] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    end_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    submission: Mapped[WritingSubmission] = relationship(back_populates="visits")
+
+
+class WritingIntegrityEvent(Base, TimestampMixin):
+    __tablename__ = "writing_integrity_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(
+        ForeignKey("writing_submissions.id", ondelete="CASCADE"), index=True
+    )
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(32))
+    source: Mapped[str] = mapped_column(String(32))
+    detail: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+    submission: Mapped[WritingSubmission] = relationship(back_populates="integrity_events")

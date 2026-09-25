@@ -75,6 +75,28 @@ class TaskService:
         self.db.commit()
         return task_out(self.tasks.get(task.id), teacher.id)
 
+    def update(self, teacher: User, task_id: int, data: TaskCreate) -> TaskOut:
+        task = self.tasks.get(task_id)
+        if not task or task.teacher_id != teacher.id:
+            raise AppError("TASK_NOT_FOUND", "口语任务不存在或无权编辑", 404)
+        classroom = self.classes.get(data.class_id)
+        bank = self.topics.bank(data.topic_bank_id)
+        if not classroom or classroom.teacher_id != teacher.id:
+            raise AppError("CLASS_NOT_FOUND", "目标班级不存在或无权访问", 404)
+        if not bank or bank.teacher_id != teacher.id:
+            raise AppError("BANK_NOT_FOUND", "题库不存在或无权访问", 404)
+        if task.sessions and (data.class_id != task.class_id or data.topic_bank_id != task.topic_bank_id):
+            raise AppError("TASK_ALREADY_STARTED", "已有学生开始训练，不能更换班级或题库", 409)
+        if data.topic_bank_id != task.topic_bank_id and not any(topic.is_active for topic in bank.topics):
+            raise AppError("EMPTY_BANK", "题库中没有启用的题目", 400)
+        if any(len(s.draws) > data.redraw_limit + 1 or s.recording_attempts_started > data.rerecord_limit + 1 for s in task.sessions):
+            raise AppError("TASK_LIMIT_USED", "次数不能少于学生已经使用的次数", 409)
+        for key, value in data.model_dump().items():
+            setattr(task, key, value)
+        self.db.commit()
+        self.db.expire_all()
+        return task_out(self.tasks.get(task_id), teacher.id)
+
     def set_status(self, teacher: User, task_id: int, status: TaskStatus) -> TaskOut:
         task = self.tasks.get(task_id)
         if not task:

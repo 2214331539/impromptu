@@ -28,8 +28,12 @@ class Settings(BaseSettings):
     openai_model: str = ""
     openai_base_url: str = ""
     openai_api_key: str = ""
+    ai_http_trust_env: bool = False
     ai_import_max_topics: int = 80
     ai_import_timeout_seconds: int = 180
+    writing_grammar_timeout_seconds: int = 60
+    writing_grammar_max_chars: int = 12000
+    writing_presence_heartbeat_timeout_seconds: int = 30
     smtp_host: str = ""
     smtp_port: int = 465
     smtp_username: str = ""

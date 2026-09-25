@@ -143,7 +143,7 @@ class TopicImportService:
             ],
         }
         try:
-            with httpx.Client(timeout=settings.ai_import_timeout_seconds) as client:
+            with httpx.Client(timeout=settings.ai_import_timeout_seconds, trust_env=settings.ai_http_trust_env) as client:
                 response = client.post(
                     url,
                     headers={"Authorization": f"Bearer {settings.openai_api_key}"},

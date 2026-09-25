@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AppRoutes } from "./routes/AppRoutes";
 import "./styles/globals.css";
 
@@ -12,10 +12,12 @@ const queryClient = new QueryClient({
   },
 });
 
+const router = createBrowserRouter([{ path: "*", element: <AppRoutes /> }]);
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter><AppRoutes /></BrowserRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 );

@@ -27,10 +27,12 @@ export function AiTopicImportModal({
   open,
   onClose,
   onImported,
+  targetBank,
 }: {
   open: boolean;
   onClose: () => void;
   onImported: (bank: TopicBank) => void;
+  targetBank?: TopicBank | null;
 }) {
   const [step, setStep] = useState<"source" | "preview">("source");
   const [name, setName] = useState("");
@@ -45,7 +47,7 @@ export function AiTopicImportModal({
     () => topics.filter((topic) => topic.prompt.trim().length >= 2).length,
     [topics],
   );
-  const canCommit = name.trim().length >= 2 && validCount > 0;
+  const canCommit = (!!targetBank || name.trim().length >= 2) && validCount > 0;
 
   const reset = () => {
     setStep("source");
@@ -82,7 +84,7 @@ export function AiTopicImportModal({
 
   const commit = useMutation({
     mutationFn: () =>
-      api<TopicImportCommit>("/topic-banks/import-commit", {
+      api<TopicImportCommit>(targetBank ? `/topic-banks/${targetBank.id}/topics/batch` : "/topic-banks/import-commit", {
         method: "POST",
         body: JSON.stringify({
           name: name.trim(),
@@ -107,7 +109,7 @@ export function AiTopicImportModal({
   };
 
   return (
-    <Modal open={open} onClose={close} title="AI 导入题库" size="lg">
+    <Modal open={open} onClose={close} title={targetBank ? `追加到「${targetBank.name}」` : "AI 导入题库"} size="lg">
       {step === "source" ? (
         <div className="space-y-5">
           <div className="rounded-[18px] border border-black/[.06] bg-white p-4">
@@ -129,7 +131,7 @@ export function AiTopicImportModal({
               <label className="label">题库名称</label>
               <input
                 className="field"
-                value={name}
+                disabled={!!targetBank} value={targetBank?.name ?? name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="例如：心理学主题"
               />
@@ -138,7 +140,7 @@ export function AiTopicImportModal({
               <label className="label">题库说明</label>
               <input
                 className="field"
-                value={description}
+                disabled={!!targetBank} value={targetBank?.description ?? description}
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="可选"
               />
@@ -195,11 +197,11 @@ export function AiTopicImportModal({
           <div className="grid gap-3 sm:grid-cols-[1fr_1.4fr_auto] sm:items-end">
             <div>
               <label className="label">题库名称</label>
-              <input className="field" value={name} onChange={(event) => setName(event.target.value)} />
+              <input className="field" disabled={!!targetBank} value={targetBank?.name ?? name} onChange={(event) => setName(event.target.value)} />
             </div>
             <div>
               <label className="label">题库说明</label>
-              <input className="field" value={description} onChange={(event) => setDescription(event.target.value)} />
+              <input className="field" disabled={!!targetBank} value={targetBank?.description ?? description} onChange={(event) => setDescription(event.target.value)} />
             </div>
             <Button variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => setTopics((items) => [...items, emptyTopic])}>
               加主题
@@ -248,7 +250,7 @@ export function AiTopicImportModal({
                 返回修改材料
               </Button>
               <Button disabled={!canCommit} loading={commit.isPending} onClick={() => commit.mutate()}>
-                创建题库
+                {targetBank ? "追加到当前题库" : "创建题库"}
               </Button>
             </div>
           </div>

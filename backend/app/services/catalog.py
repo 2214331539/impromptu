@@ -9,6 +9,7 @@ from app.models.entities import (
     ClassMember,
     ClassRoom,
     Evaluation,
+    Difficulty,
     SessionPhase,
     Topic,
     TopicBank,
@@ -222,17 +223,39 @@ class TopicService:
 
     def create_topic(self, teacher: User, bank_id: int, data: TopicCreate) -> TopicOut:
         self._owned_bank(teacher.id, bank_id)
+        if not data.prompt.strip():
+            raise AppError("EMPTY_TOPIC", "题目不能为空", 400)
         topic = Topic(bank_id=bank_id, **data.model_dump())
         self.db.add(topic)
         self.db.commit()
         self.db.refresh(topic)
         return TopicOut.model_validate(topic)
 
+    def append_topics(self, teacher: User, bank_id: int, items: list[TopicCreate]) -> TopicImportCommitOut:
+        bank = self._owned_bank(teacher.id, bank_id)
+        prompts = [item.prompt.strip() for item in items]
+        if any(not prompt for prompt in prompts):
+            raise AppError("EMPTY_TOPIC", "题目不能为空", 400)
+        # Deduplicate within this batch and against the existing bank, preserving order.
+        seen = {topic.prompt.strip().casefold() for topic in bank.topics}
+        added = []
+        for prompt in prompts:
+            if prompt.casefold() in seen:
+                continue
+            seen.add(prompt.casefold())
+            added.append(Topic(bank_id=bank_id, prompt=prompt, category="Topic", difficulty=Difficulty.MEDIUM, tags=""))
+        self.db.add_all(added)
+        self.db.commit()
+        self.db.expire(bank, ["topics"])
+        return TopicImportCommitOut(bank=self._bank_out(bank), topics=[TopicOut.model_validate(item) for item in added])
+
     def update_topic(self, teacher: User, topic_id: int, data: TopicUpdate) -> TopicOut:
         topic = self.topics.topic(topic_id)
         if not topic:
             raise AppError("TOPIC_NOT_FOUND", "题目不存在", 404)
         self._owned_bank(teacher.id, topic.bank_id)
+        if "prompt" in data.model_fields_set and (data.prompt is None or not data.prompt.strip()):
+            raise AppError("EMPTY_TOPIC", "题目不能为空", 400)
         for key, value in data.model_dump(exclude_unset=True).items():
             setattr(topic, key, value)
         self.db.commit()

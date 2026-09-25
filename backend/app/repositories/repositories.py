@@ -11,6 +11,11 @@ from app.models.entities import (
     TrainingSession,
     TrainingTask,
     User,
+    WritingAssignment,
+    WritingIntegrityEvent,
+    WritingPresenceVisit,
+    WritingRevision,
+    WritingSubmission,
 )
 
 
@@ -194,4 +199,139 @@ class SessionRepository:
                 .where(TrainingSession.task_id == task_id)
                 .order_by(TrainingSession.updated_at.desc())
             ).unique()
+        )
+
+
+class WritingRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    @staticmethod
+    def assignment_options():
+        return (
+            joinedload(WritingAssignment.classroom),
+            joinedload(WritingAssignment.teacher),
+            selectinload(WritingAssignment.submissions).selectinload(WritingSubmission.student),
+        )
+
+    def assignment(self, assignment_id: int) -> WritingAssignment | None:
+        return self.db.scalar(
+            select(WritingAssignment)
+            .options(*self.assignment_options())
+            .where(WritingAssignment.id == assignment_id)
+        )
+
+    def assignments_for_teacher(self, teacher_id: int) -> list[WritingAssignment]:
+        return list(
+            self.db.scalars(
+                select(WritingAssignment)
+                .options(*self.assignment_options())
+                .where(WritingAssignment.teacher_id == teacher_id)
+                .order_by(WritingAssignment.due_at.desc())
+            ).unique()
+        )
+
+    def assignments_for_student(self, student_id: int) -> list[WritingAssignment]:
+        return list(
+            self.db.scalars(
+                select(WritingAssignment)
+                .join(ClassMember, ClassMember.class_id == WritingAssignment.class_id)
+                .options(*self.assignment_options())
+                .where(ClassMember.student_id == student_id)
+                .order_by(WritingAssignment.due_at.desc())
+            ).unique()
+        )
+
+    @staticmethod
+    def submission_options():
+        return (
+            joinedload(WritingSubmission.assignment).joinedload(WritingAssignment.classroom),
+            joinedload(WritingSubmission.assignment).joinedload(WritingAssignment.teacher),
+            joinedload(WritingSubmission.student),
+            selectinload(WritingSubmission.revisions).selectinload(WritingRevision.issues),
+            selectinload(WritingSubmission.visits),
+            selectinload(WritingSubmission.integrity_events),
+        )
+
+    def submission(self, submission_id: int, for_update: bool = False) -> WritingSubmission | None:
+        statement = (
+            select(WritingSubmission)
+            .options(*self.submission_options())
+            .where(WritingSubmission.id == submission_id)
+        )
+        if for_update:
+            statement = statement.with_for_update(of=WritingSubmission)
+        return self.db.scalar(statement)
+
+    def submission_for_assignment_student(
+        self, assignment_id: int, student_id: int
+    ) -> WritingSubmission | None:
+        return self.db.scalar(
+            select(WritingSubmission)
+            .options(*self.submission_options())
+            .where(
+                WritingSubmission.assignment_id == assignment_id,
+                WritingSubmission.student_id == student_id,
+            )
+        )
+
+    def submissions_for_assignment(self, assignment_id: int) -> list[WritingSubmission]:
+        return list(
+            self.db.scalars(
+                select(WritingSubmission)
+                .options(*self.submission_options())
+                .where(WritingSubmission.assignment_id == assignment_id)
+                .order_by(WritingSubmission.updated_at.desc())
+            ).unique()
+        )
+
+    def revision_by_client_submit(
+        self, submission_id: int, client_submit_id: str
+    ) -> WritingRevision | None:
+        return self.db.scalar(
+            select(WritingRevision)
+            .options(selectinload(WritingRevision.issues))
+            .where(
+                WritingRevision.submission_id == submission_id,
+                WritingRevision.client_submit_id == client_submit_id,
+            )
+        )
+
+    def open_visit(
+        self, submission_id: int, client_visit_id: str
+    ) -> WritingPresenceVisit | None:
+        return self.db.scalar(
+            select(WritingPresenceVisit).where(
+                WritingPresenceVisit.submission_id == submission_id,
+                WritingPresenceVisit.client_visit_id == client_visit_id,
+                WritingPresenceVisit.ended_at.is_(None),
+            )
+        )
+
+    def open_visits(self, submission_id: int) -> list[WritingPresenceVisit]:
+        return list(
+            self.db.scalars(
+                select(WritingPresenceVisit).where(
+                    WritingPresenceVisit.submission_id == submission_id,
+                    WritingPresenceVisit.ended_at.is_(None),
+                )
+            )
+        )
+
+    def visits_for_submission(self, submission_id: int) -> list[WritingPresenceVisit]:
+        return list(
+            self.db.scalars(
+                select(WritingPresenceVisit)
+                .where(WritingPresenceVisit.submission_id == submission_id)
+                .order_by(WritingPresenceVisit.started_at)
+            )
+        )
+
+    def integrity_events_for_submission(self, submission_id: int) -> list[WritingIntegrityEvent]:
+        return list(
+            self.db.scalars(
+                select(WritingIntegrityEvent)
+                .where(WritingIntegrityEvent.submission_id == submission_id)
+                .order_by(WritingIntegrityEvent.occurred_at.desc())
+            )
         )

@@ -11,7 +11,5 @@ frontend/dist/
 frontend/.vite/
 .DS_Store
 .local/
-start.bat
-start.ps1
 
 账号+更新流程.md

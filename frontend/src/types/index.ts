@@ -37,3 +37,122 @@ export interface TrainingSession {
 }
 export interface Dashboard { metrics: Record<string, number>; pending_tasks: Task[]; recent_sessions: TrainingSession[] }
 export interface ApiErrorBody { error?: { code: string; message: string }; detail?: string | Array<{ msg: string }> }
+
+export type WritingAssignmentStatus = "draft" | "published" | "closed";
+export type WritingGrammarHintMode = "off" | "after_submit";
+export type WritingSubmissionStatus = "drafting" | "revising" | "finalized";
+export type WritingGrammarStatus = "not_applicable" | "pending" | "completed" | "failed";
+
+export interface WritingAssignment {
+  id: number;
+  title: string;
+  instructions: string;
+  class_id: number;
+  class_name: string;
+  teacher_id: number;
+  teacher_name: string;
+  status: WritingAssignmentStatus;
+  starts_at: string;
+  due_at: string;
+  min_words: number;
+  max_words: number | null;
+  grammar_hint_mode: WritingGrammarHintMode;
+  revision_limit: number;
+  allow_late_submission: boolean;
+  participant_count: number;
+  submitted_count: number;
+  finalized_count: number;
+  my_submission_id: number | null;
+  my_submission_status: WritingSubmissionStatus | null;
+}
+
+export interface WritingGrammarIssue {
+  id: number;
+  start_offset: number;
+  end_offset: number;
+  segment_id: string | null;
+  category: string;
+  message: string;
+}
+
+export interface WritingRevision {
+  id: number;
+  revision_number: number;
+  content: string;
+  word_count: number;
+  grammar_status: WritingGrammarStatus;
+  grammar_issue_count: number;
+  submitted_at: string;
+  issues: WritingGrammarIssue[];
+}
+
+export interface WritingSubmission {
+  id: number;
+  assignment_id: number;
+  student_id: number;
+  status: WritingSubmissionStatus;
+  draft_content: string;
+  draft_word_count: number;
+  draft_updated_at: string;
+  first_submitted_at: string | null;
+  final_submitted_at: string | null;
+  revisions: WritingRevision[];
+  remaining_revisions: number;
+  server_time: string;
+}
+
+export interface WritingPresenceVisit {
+  id: number;
+  client_visit_id: string;
+  started_at: string;
+  ended_at: string | null;
+  last_heartbeat_at: string;
+  end_reason: string | null;
+}
+
+export interface WritingIntegrityEvent {
+  id: number;
+  event_type: string;
+  source: string;
+  detail: string | null;
+  occurred_at: string;
+}
+
+export interface WritingTeacherSubmissionSummary {
+  submission_id: number;
+  student_id: number;
+  student_no: string;
+  student_name: string;
+  status: WritingSubmissionStatus;
+  draft_word_count: number;
+  latest_revision_number: number | null;
+  latest_grammar_issue_count: number;
+  first_submitted_at: string | null;
+  final_submitted_at: string | null;
+  total_stay_seconds: number;
+  total_leave_seconds: number;
+  leave_count: number;
+  violation_count: number;
+}
+
+export interface WritingTeacherSubmissionDetail {
+  submission_id: number;
+  assignment_id: number;
+  assignment_title: string;
+  grammar_hint_mode: WritingGrammarHintMode;
+  revision_limit: number;
+  student_id: number;
+  student_no: string;
+  student_name: string;
+  status: WritingSubmissionStatus;
+  draft_content: string;
+  draft_word_count: number;
+  first_submitted_at: string | null;
+  final_submitted_at: string | null;
+  revisions: WritingRevision[];
+  visits: WritingPresenceVisit[];
+  integrity_events: WritingIntegrityEvent[];
+  total_stay_seconds: number;
+  total_leave_seconds: number;
+  leave_count: number;
+}

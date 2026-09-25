@@ -52,26 +52,57 @@
 
 训练状态机为 `mic_check -> drawing -> researching -> preparing -> speaking -> review -> submitted`。默认配置是试音通过后选题，确认题目后进行 15 分钟资料搜集，随后用 1 分钟整理演讲草稿，最后由学生主动开始 3 分钟正式录音。资料搜集结束由后端根据 `research_ends_at` 自动切入整理；整理倒计时归零后仍停留在 `preparing`，只有学生点击“开始演讲并录音”才会写入 `speaking_started_at` 和 `speaking_ends_at`。所有倒计时均根据服务端 UTC 截止时间校准，页面刷新不会重置时间。
 
-## 本地一键启动
+## 本地启动（不依赖 Docker）
 
-本地开发不需要启动 Docker。Windows 下可直接双击根目录的 `start.bat` 一键启动；脚本会使用本机 PostgreSQL、本机 Python 虚拟环境和 Vite dev server。
+本地开发不需要启动 Docker。当前 `.env` 的 `DATABASE_URL` 已指向本机 PostgreSQL：
+
+```text
+postgresql+psycopg://speaking:speaking_local@127.0.0.1:5432/speaking_lab
+```
+
+也就是说，PostgreSQL 使用本地数据库，不使用 Docker。录音存储默认仍使用阿里云 OSS；如果只做本地功能测试且不需要真实 OSS 上传，可以把 `.env` 中：
+
+```env
+STORAGE_BACKEND=local
+```
+
+改为本地存储。
+
+### Windows 一键启动
+
+双击根目录的 `start.bat`，即可同时启动本地前后端并打开浏览器。`start.ps1` 是该入口调用的实现脚本；原来的前后端独立启动脚本已移除。
+
+需要预先安装 Python 3.11+（提供 `py` 命令）、Node.js 20.19+ 或 22.12+ 的受支持版本，以及 PostgreSQL。首次使用请准备本地数据库和账号，并配置 `.env`。缺少 `.env` 时脚本会从示例生成文件并提示配置，不会覆盖已有配置。
 
 ```powershell
-Copy-Item .env.example .env
 .\start.bat
 ```
 
 默认本地配置：
 
-- Web：http://localhost:5173
-- 管理员登录：http://localhost:5173/admin/login
-- API：http://localhost:8001/api/v1
-- OpenAPI：http://localhost:8001/docs
+- Web：http://localhost:5174
+- 管理员登录：http://localhost:5174/admin/login
+- API：http://localhost:8002/api/v1
+- OpenAPI：http://localhost:8002/docs
 - PostgreSQL：本机 `speaking_lab`
 - 录音：阿里云 OSS（由本地 `.env` 配置）
 - 存储：`STORAGE_BACKEND=oss`
 
-首次启动会检查本机 PostgreSQL。如果 `speaking` 角色或 `speaking_lab` 数据库不存在，脚本会提示输入本机 PostgreSQL 的 `postgres` 密码并自动创建。根目录 `.env` 不提交 Git；本地和服务器可以使用同一份代码，但分别维护自己的数据库、OSS Bucket、AccessKey 和其他配置。
+启动脚本自动准备 Python 虚拟环境，按依赖文件变更安装 Python / npm 依赖，检查数据库连接，执行 Alembic 迁移；仅当 `SEED_DEMO_DATA=true` 时初始化演示数据。数据库和账号需提前建立，脚本不会修改数据库账号密码。根目录 `.env` 不提交 Git，本地与服务器分别维护配置。
+
+前后端端口以 `.env` 中的 `FRONTEND_PORT` / `BACKEND_PORT` 为准，缺省为 5174 / 8002；启动时自动匹配前端 API 地址和后端 CORS。端口已被占用时会明确报错，不会停止其他程序，也不会自动换端口。两项 HTTP 就绪检查通过后才打开浏览器。
+
+启动后保持窗口打开，**在启动窗口按回车或 Ctrl+C，同时停止前后端**。启动失败也会清理本次已启动的服务。请使用该退出方式，不要直接强制关闭窗口。服务日志保存在 `.local/logs/` 的 `backend.log`、`backend.err.log`、`frontend.log`、`frontend.err.log`。
+
+可选诊断命令：
+
+```powershell
+.\start.bat -CheckOnly   # 检查现有环境、端口及数据库，不安装依赖或执行迁移
+.\start.bat -NoBrowser   # 启动服务，但不自动打开浏览器
+.\start.bat -SmokeTest   # 正常准备、迁移并启动，检查就绪后自动停止
+```
+
+需要独立测试配置时可加 `-EnvFile "路径"`。本地启动入口拒绝远程数据库主机，服务器部署继续使用 Docker。
 
 本机安装 FFmpeg 后，录音可以完整转码为 MP4：
 
@@ -144,7 +175,7 @@ docker compose down -v
 cd backend
 .\.venv\Scripts\Activate.ps1
 python -m alembic upgrade head
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8002
 ```
 
 运行测试：
@@ -159,7 +190,7 @@ cd backend
 ```powershell
 cd frontend
 npm install
-$env:VITE_API_URL="http://localhost:8001/api/v1"
+$env:VITE_API_URL="http://localhost:8002/api/v1"
 npm run dev
 ```
 

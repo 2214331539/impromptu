@@ -1,13 +1,30 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models.entities import Difficulty, SessionPhase, TaskStatus, UserRole
+from app.models.entities import (
+    Difficulty,
+    SessionPhase,
+    TaskStatus,
+    UserRole,
+    WritingAssignmentStatus,
+    WritingGrammarHintMode,
+    WritingGrammarStatus,
+    WritingSubmissionStatus,
+)
 
 
 class APIModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("*", mode="after")
+    @classmethod
+    def utc_datetimes(cls, value):
+        # SQLite omits timezone metadata; API dates must remain UTC on every backend.
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        return value
 
 
 class UserOut(APIModel):
@@ -145,14 +162,14 @@ class MemberOut(APIModel):
 
 
 class TopicCreate(BaseModel):
-    prompt: str = Field(min_length=5, max_length=2000)
-    category: str = Field(min_length=1, max_length=64)
+    prompt: str = Field(min_length=1, max_length=2000)
+    category: str = Field(default="Topic", min_length=1, max_length=64)
     difficulty: Difficulty = Difficulty.MEDIUM
     tags: str = Field(default="", max_length=255)
 
 
 class TopicUpdate(BaseModel):
-    prompt: str | None = Field(default=None, min_length=5, max_length=2000)
+    prompt: str | None = Field(default=None, min_length=1, max_length=2000)
     category: str | None = Field(default=None, min_length=1, max_length=64)
     difficulty: Difficulty | None = None
     tags: str | None = Field(default=None, max_length=255)
@@ -185,8 +202,8 @@ class TopicBankOut(APIModel):
 
 
 class TopicImportItem(BaseModel):
-    prompt: str = Field(min_length=2, max_length=2000)
-    category: str = Field(min_length=1, max_length=64)
+    prompt: str = Field(min_length=1, max_length=2000)
+    category: str = Field(default="Topic", min_length=1, max_length=64)
     difficulty: Difficulty = Difficulty.MEDIUM
     tags: str = Field(default="", max_length=255)
 
@@ -207,6 +224,10 @@ class TopicImportCommitRequest(BaseModel):
 class TopicImportCommitOut(BaseModel):
     bank: TopicBankOut
     topics: list[TopicOut]
+
+
+class TopicAppendRequest(BaseModel):
+    topics: list[TopicCreate] = Field(min_length=1, max_length=200)
 
 
 class TaskCreate(BaseModel):
@@ -344,6 +365,173 @@ class FinishSpeakingRequest(BaseModel):
 class SubmitSessionRequest(BaseModel):
     self_assessment: str = Field(default="", max_length=3000)
     recording_id: int
+
+
+class WritingAssignmentCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    instructions: str = Field(default="", max_length=5000)
+    class_id: int
+    starts_at: datetime
+    due_at: datetime
+    min_words: int = Field(default=0, ge=0, le=100000)
+    max_words: int | None = Field(default=None, gt=0, le=100000)
+    grammar_hint_mode: WritingGrammarHintMode = WritingGrammarHintMode.OFF
+    revision_limit: int = Field(default=1, ge=0, le=20)
+    allow_late_submission: bool = False
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.starts_at.tzinfo is None or self.due_at.tzinfo is None:
+            raise ValueError("开始时间和截止时间必须包含时区")
+        if self.due_at <= self.starts_at:
+            raise ValueError("截止时间必须晚于开始时间")
+        if self.max_words is not None and self.max_words < self.min_words:
+            raise ValueError("最多字数必须大于等于最少字数")
+        self.starts_at = self.starts_at.astimezone(timezone.utc)
+        self.due_at = self.due_at.astimezone(timezone.utc)
+        return self
+
+
+class WritingAssignmentOut(APIModel):
+    id: int
+    title: str
+    instructions: str
+    class_id: int
+    class_name: str
+    teacher_id: int
+    teacher_name: str
+    status: WritingAssignmentStatus
+    starts_at: datetime
+    due_at: datetime
+    min_words: int
+    max_words: int | None
+    grammar_hint_mode: WritingGrammarHintMode
+    revision_limit: int
+    allow_late_submission: bool
+    participant_count: int = 0
+    submitted_count: int = 0
+    finalized_count: int = 0
+    my_submission_id: int | None = None
+    my_submission_status: WritingSubmissionStatus | None = None
+
+
+class WritingDraftUpdate(BaseModel):
+    content: str = Field(max_length=100000)
+
+
+class WritingSubmitRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=100000)
+    client_submit_id: str = Field(min_length=8, max_length=64)
+
+
+class WritingPresenceEnterRequest(BaseModel):
+    client_visit_id: str = Field(min_length=8, max_length=64)
+
+
+class WritingPresenceHeartbeatRequest(BaseModel):
+    client_visit_id: str = Field(min_length=8, max_length=64)
+
+
+class WritingPresenceLeaveRequest(BaseModel):
+    client_visit_id: str = Field(min_length=8, max_length=64)
+    reason: str = Field(default="leave", max_length=32)
+
+
+class WritingIntegrityRequest(BaseModel):
+    event_type: str = Field(max_length=32)
+    source: str = Field(max_length=32)
+    detail: str | None = Field(default=None, max_length=255)
+
+
+class WritingGrammarIssueOut(APIModel):
+    id: int
+    start_offset: int
+    end_offset: int
+    segment_id: str | None
+    category: str
+    message: str
+
+
+class WritingRevisionOut(APIModel):
+    id: int
+    revision_number: int
+    content: str
+    word_count: int
+    grammar_status: WritingGrammarStatus
+    grammar_issue_count: int
+    submitted_at: datetime
+    issues: list[WritingGrammarIssueOut]
+
+
+class WritingSubmissionOut(APIModel):
+    id: int
+    assignment_id: int
+    student_id: int
+    status: WritingSubmissionStatus
+    draft_content: str
+    draft_word_count: int
+    draft_updated_at: datetime
+    first_submitted_at: datetime | None
+    final_submitted_at: datetime | None
+    revisions: list[WritingRevisionOut]
+    remaining_revisions: int
+    server_time: datetime
+
+
+class WritingPresenceVisitOut(APIModel):
+    id: int
+    client_visit_id: str
+    started_at: datetime
+    ended_at: datetime | None
+    last_heartbeat_at: datetime
+    end_reason: str | None
+
+
+class WritingIntegrityEventOut(APIModel):
+    id: int
+    event_type: str
+    source: str
+    detail: str | None
+    occurred_at: datetime
+
+
+class WritingTeacherSubmissionSummary(APIModel):
+    submission_id: int
+    student_id: int
+    student_no: str
+    student_name: str
+    status: WritingSubmissionStatus
+    draft_word_count: int
+    latest_revision_number: int | None
+    latest_grammar_issue_count: int
+    first_submitted_at: datetime | None
+    final_submitted_at: datetime | None
+    total_stay_seconds: float
+    total_leave_seconds: float
+    leave_count: int
+    violation_count: int
+
+
+class WritingTeacherSubmissionDetail(APIModel):
+    submission_id: int
+    assignment_id: int
+    assignment_title: str
+    grammar_hint_mode: WritingGrammarHintMode
+    revision_limit: int
+    student_id: int
+    student_no: str
+    student_name: str
+    status: WritingSubmissionStatus
+    draft_content: str
+    draft_word_count: int
+    first_submitted_at: datetime | None
+    final_submitted_at: datetime | None
+    revisions: list[WritingRevisionOut]
+    visits: list[WritingPresenceVisitOut]
+    integrity_events: list[WritingIntegrityEventOut]
+    total_stay_seconds: float
+    total_leave_seconds: float
+    leave_count: int
 
 
 class DashboardOut(BaseModel):
