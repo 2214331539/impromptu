@@ -86,3 +86,35 @@ def test_return_original_recording_can_be_resubmitted(client, course, session, d
     assert result.status_code == 200
     assert result.json()["self_assessment"] == "修改后的自评"
     assert result.json()["note_locked"]
+
+
+def test_failed_upload_does_not_consume_attempt(client, course, session, db_session, monkeypatch):
+    item = db_session.get(TrainingSession, session["id"])
+    item.phase = SessionPhase.REVIEW
+    item.recording_attempts_started = 1
+    db_session.commit()
+    url = f"/api/v1/sessions/{item.id}"
+    failed = client.post(
+        url + "/recordings",
+        headers=course["student"],
+        files={"file": ("recording.webm", b"not-audio", "audio/webm")},
+        data={"duration_seconds": "1"},
+    )
+    assert failed.status_code == 415
+    db_session.refresh(item)
+    assert item.recording_attempts_started == 0
+    assert client.post(url + "/retry-speaking", headers=course["student"]).status_code == 200
+
+
+def test_teacher_can_recover_review_without_recording(client, course, session, db_session):
+    item = db_session.get(TrainingSession, session["id"])
+    item.phase = SessionPhase.REVIEW
+    item.recording_attempts_started = item.task.rerecord_limit + 1
+    db_session.commit()
+    url = f"/api/v1/sessions/{item.id}"
+    response = client.post(url + "/return", headers=course["teacher"], json={"reason": "录音上传失败，请重新完成本次作业"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["phase"] == "review" and body["recording_attempts_started"] == 0
+    assert body["return_history"][-1]["recording_id"] is None
+    assert body["return_history"][-1]["submitted_at"] is None

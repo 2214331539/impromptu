@@ -59,12 +59,29 @@ def aware(value: datetime | None) -> datetime | None:
 class TrainingService:
     allowed_mime_types = {
         "audio/webm": ".webm",
+        "video/webm": ".webm",
         "audio/ogg": ".ogg",
+        "application/ogg": ".ogg",
         "audio/mp4": ".mp4",
         "video/mp4": ".mp4",
+        "audio/m4a": ".m4a",
+        "audio/x-m4a": ".m4a",
         "audio/mpeg": ".mp3",
+        "audio/aac": ".aac",
         "audio/wav": ".wav",
         "audio/x-wav": ".wav",
+        "audio/wave": ".wav",
+        "audio/flac": ".flac",
+    }
+
+    audio_container_types = {
+        "webm": ("audio/webm", ".webm"),
+        "ogg": ("audio/ogg", ".ogg"),
+        "mp4": ("audio/mp4", ".mp4"),
+        "wav": ("audio/wav", ".wav"),
+        "mp3": ("audio/mpeg", ".mp3"),
+        "aac": ("audio/aac", ".aac"),
+        "flac": ("audio/flac", ".flac"),
     }
 
     def __init__(self, db: Session):
@@ -222,8 +239,18 @@ class TrainingService:
         session = self._student_session(student.id, session_id, lock=True)
         if session.phase != SessionPhase.REVIEW:
             raise AppError("INVALID_PHASE", "当前不能重新录制", 409)
-        if session.recording_attempts_started >= session.task.rerecord_limit + 1 + len(session.return_history):
-            raise AppError("RERECORD_LIMIT", "重新录制次数已用完", 409)
+        max_attempts = session.task.rerecord_limit + 1 + len(session.return_history)
+        if session.recording_attempts_started >= max_attempts:
+            has_recording_for_attempt = any(
+                item.attempt_number == session.recording_attempts_started for item in session.recordings
+            )
+            if has_recording_for_attempt:
+                raise AppError("RERECORD_LIMIT", "重新录制次数已用完", 409)
+            # A failed upload must not consume a recording attempt. Rebase the next
+            # attempt on the latest successfully stored recording.
+            session.recording_attempts_started = max(
+                (item.attempt_number for item in session.recordings), default=0
+            )
         now = utc_now()
         session.phase = SessionPhase.SPEAKING
         session.speaking_started_at = now
@@ -255,9 +282,7 @@ class TrainingService:
         self._reconcile(session)
         if session.phase != SessionPhase.REVIEW:
             raise AppError("INVALID_PHASE", "请先完成演讲", 409)
-        mime_type = (file.content_type or "").split(";")[0]
-        if mime_type not in self.allowed_mime_types:
-            raise AppError("INVALID_AUDIO_TYPE", "仅支持 WebM、OGG、M4A、MP3 或 WAV 音频", 415)
+        mime_type = (file.content_type or "").split(";")[0].strip().lower()
         attempt = session.recording_attempts_started
         if attempt <= 0 or attempt > session.task.rerecord_limit + 1 + len(session.return_history):
             raise AppError("RERECORD_LIMIT", "重新录制次数已用完", 409)
@@ -266,14 +291,18 @@ class TrainingService:
             return self._recording_out(existing)
         max_size = settings.upload_max_mb * 1024 * 1024
         content = await file.read(max_size + 1)
-        if len(content) > max_size:
-            raise AppError("FILE_TOO_LARGE", f"录音不能超过 {settings.upload_max_mb}MB", 413)
-        if not content:
-            raise AppError("EMPTY_FILE", "录音文件为空", 400)
-        if not self._matches_audio_signature(mime_type, content):
-            raise AppError("INVALID_AUDIO_FILE", "文件内容与音频格式不匹配", 415)
+        try:
+            if len(content) > max_size:
+                raise AppError("FILE_TOO_LARGE", f"录音不能超过 {settings.upload_max_mb}MB", 413)
+            if not content:
+                raise AppError("EMPTY_FILE", "录音文件为空", 400)
+            mime_type, extension = self._resolve_audio_format(mime_type, file.filename or "", content)
+        except AppError:
+            self._release_failed_attempt(session, attempt)
+            raise
         storage_provider = settings.storage_backend.strip().lower()
         if storage_provider not in {"local", "oss"}:
+            self._release_failed_attempt(session, attempt)
             raise AppError("STORAGE_CONFIGURATION_ERROR", "录音存储配置无效", 503)
 
         upload_dir = Path(settings.upload_dir)
@@ -283,12 +312,13 @@ class TrainingService:
         uploaded_object_key: str | None = None
         with TemporaryDirectory(prefix="recording-", dir=upload_dir) as temp_dir:
             temp_path = Path(temp_dir)
-            source_path = temp_path / f"source{self.allowed_mime_types[mime_type]}"
+            source_path = temp_path / f"source{extension}"
             target_path = temp_path / "recording.mp4"
             source_path.write_bytes(content)
             converted = self._convert_to_mp4(source_path, target_path)
 
             if storage_provider == "oss" and not converted:
+                self._release_failed_attempt(session, attempt)
                 raise AppError("AUDIO_CONVERSION_UNAVAILABLE", "录音转码失败，请稍后重试", 503)
 
             if converted:
@@ -307,8 +337,10 @@ class TrainingService:
                 try:
                     self._oss_storage().put_bytes(stored_path, payload_path.read_bytes(), stored_mime_type)
                 except AppError:
+                    self._release_failed_attempt(session, attempt)
                     raise
                 except Exception as error:
+                    self._release_failed_attempt(session, attempt)
                     raise AppError("OSS_UPLOAD_FAILED", "录音上传到 OSS 失败，请重试", 503) from error
                 uploaded_object_key = stored_path
             else:
@@ -453,6 +485,23 @@ class TrainingService:
         session = self.sessions.get(session_id, for_update=True)
         if not session or session.task.teacher_id != teacher.id:
             raise AppError("SESSION_NOT_FOUND", "提交不存在或无权访问", 404)
+        if session.phase == SessionPhase.REVIEW and not session.recordings:
+            if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
+                raise AppError("TASK_CLOSED", "请先重新开放任务并延长截止时间，再恢复作业", 409)
+            session.return_history = [*session.return_history, {
+                "reason": reason.strip(),
+                "returned_at": utc_now().isoformat(),
+                "teacher_id": teacher.id,
+                "submitted_at": None,
+                "recording_id": None,
+                "evaluation": None,
+            }]
+            session.recording_attempts_started = 0
+            session.submitted_at = None
+            if session.note:
+                session.note.locked = False
+            self.db.commit()
+            return self._out(self.sessions.get(session_id))
         if session.phase != SessionPhase.SUBMITTED:
             raise AppError("NOT_SUBMITTED", "只能退回已提交的口语作业，请刷新页面", 409)
         if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
@@ -634,15 +683,80 @@ class TrainingService:
         return result.returncode == 0 and target_path.exists() and target_path.stat().st_size > 0
 
     @staticmethod
-    def _matches_audio_signature(mime_type: str, content: bytes) -> bool:
-        if mime_type == "audio/webm":
-            return content.startswith(b"\x1aE\xdf\xa3")
-        if mime_type == "audio/ogg":
-            return content.startswith(b"OggS")
-        if mime_type in {"audio/wav", "audio/x-wav"}:
-            return content.startswith(b"RIFF") and len(content) >= 12
-        if mime_type in {"audio/mp4", "video/mp4"}:
-            return len(content) >= 12 and content[4:8] == b"ftyp"
-        if mime_type == "audio/mpeg":
-            return content.startswith(b"ID3") or content.startswith(b"\xff")
-        return False
+    def _detect_audio_container(content: bytes) -> tuple[str, str] | None:
+        """Detect common browser recording containers without trusting the MIME header."""
+        if content.startswith(b"\x1aE\xdf\xa3"):
+            return TrainingService.audio_container_types["webm"]
+        if content.startswith(b"OggS"):
+            return TrainingService.audio_container_types["ogg"]
+        if len(content) >= 12 and content[:4] in {b"RIFF", b"RF64"} and content[8:12] == b"WAVE":
+            return TrainingService.audio_container_types["wav"]
+        if content.startswith(b"fLaC"):
+            return TrainingService.audio_container_types["flac"]
+        if content.startswith(b"ID3") or (
+            len(content) >= 2 and content[0] == 0xFF and content[1] & 0xF6 == 0xF0
+        ):
+            return TrainingService.audio_container_types["mp3"]
+        # Safari may put an MP4 box before ftyp, or emit a fragmented MP4 where
+        # the metadata is not exactly at byte 4. The first 4 KiB is enough to
+        # cover browser headers without accepting an arbitrary trailer marker.
+        if b"ftyp" in content[:4096]:
+            return TrainingService.audio_container_types["mp4"]
+        if len(content) >= 2 and content[0] == 0xFF and content[1] & 0xF6 == 0xF0:
+            return TrainingService.audio_container_types["aac"]
+        return None
+
+    @classmethod
+    def _resolve_audio_format(cls, mime_type: str, filename: str, content: bytes) -> tuple[str, str]:
+        detected = cls._detect_audio_container(content)
+        if detected:
+            return detected
+
+        filename_mime: str | None = None
+        suffix = Path(filename).suffix.lower()
+        for candidate, extension in cls.allowed_mime_types.items():
+            if extension == suffix:
+                filename_mime = candidate
+                break
+        hinted = mime_type if mime_type in cls.allowed_mime_types else filename_mime
+        if hinted and cls._probe_audio_content(content):
+            extension = cls.allowed_mime_types[hinted]
+            if extension == ".m4a":
+                hinted = "audio/mp4"
+                extension = ".mp4"
+            return hinted, extension
+        if not hinted:
+            raise AppError("INVALID_AUDIO_TYPE", "仅支持浏览器常见的 WebM、MP4、OGG、WAV、MP3、AAC 或 FLAC 音频", 415)
+        raise AppError("INVALID_AUDIO_FILE", "无法识别该录音容器，请重新录音后上传", 415)
+
+    @staticmethod
+    def _probe_audio_content(content: bytes) -> bool:
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            return False
+        try:
+            result = subprocess.run(
+                [
+                    ffprobe,
+                    "-v", "error",
+                    "-select_streams", "a:0",
+                    "-show_entries", "stream=codec_type",
+                    "-of", "default=nw=1:nk=1",
+                    "-i", "pipe:0",
+                ],
+                input=content,
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+            return result.returncode == 0 and b"audio" in result.stdout.lower()
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def _release_failed_attempt(self, session: TrainingSession, attempt: int) -> None:
+        if session.recording_attempts_started != attempt:
+            return
+        if any(item.attempt_number == attempt for item in session.recordings):
+            return
+        session.recording_attempts_started = max(0, attempt - 1)
+        self.db.commit()

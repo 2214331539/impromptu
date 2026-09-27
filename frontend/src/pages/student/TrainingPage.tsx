@@ -60,7 +60,14 @@ function TrainingPageContent() {
   const upload = useMutation({
     mutationFn: async (payload: { blob: Blob; duration: number }) => {
       const form = new FormData();
-      const extension = payload.blob.type.includes("mp4") ? "mp4" : payload.blob.type.includes("ogg") ? "ogg" : "webm";
+      const type = payload.blob.type.toLowerCase();
+      const extension = type.includes("mp4") || type.includes("m4a") ? "mp4"
+        : type.includes("ogg") ? "ogg"
+        : type.includes("wav") || type.includes("wave") ? "wav"
+        : type.includes("mpeg") || type.includes("mp3") ? "mp3"
+        : type.includes("aac") ? "aac"
+        : type.includes("flac") ? "flac"
+        : "webm";
       form.append("file", payload.blob, `speaking-attempt.${extension}`);
       form.append("duration_seconds", String(payload.duration));
       return api<Recording>(`/sessions/${id}/recordings`, { method: "POST", body: form });
