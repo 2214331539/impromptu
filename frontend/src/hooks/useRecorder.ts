@@ -207,11 +207,10 @@ export function useRecorder(onCheckpoint?: (result: RecordingResult) => void) {
     const preferred = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
     const recorder = new MediaRecorder(stream, preferred ? { mimeType: preferred, audioBitsPerSecond: 128_000 } : { audioBitsPerSecond: 128_000 });
     chunksRef.current = [];
-    const checkpoint = checkpointRef.current;
     recorder.ondataavailable = (event) => {
       if (!event.data.size) return;
       chunksRef.current.push(event.data);
-      checkpoint?.({ blob: new Blob(chunksRef.current, { type: recorder.mimeType || event.data.type }), duration: (performance.now() - startedAtRef.current) / 1000 });
+      checkpointRef.current?.({ blob: new Blob(chunksRef.current, { type: recorder.mimeType || event.data.type }), duration: (performance.now() - startedAtRef.current) / 1000 });
     };
     recorder.onerror = () => setRecording(false);
     recorder.start(500);

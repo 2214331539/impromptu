@@ -269,9 +269,12 @@ cd backend
 python -m pytest
 
 cd ..\frontend
+npm test
 npm run typecheck
 npm run build
 ```
+
+前端测试覆盖口语重录、旧轮次请求延迟返回、倒计时自动停止，以及麦克风授权或录音启动失败后的恢复。重录时先应用服务器返回的新轮次，再启动录音，避免上一轮的提交检查状态误停新录音。
 
 ### 录音格式说明
 

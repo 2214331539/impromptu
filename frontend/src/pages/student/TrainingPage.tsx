@@ -22,6 +22,12 @@ import type { Draw, Recording, TrainingSession } from "../../types";
 import { formatDuration } from "../../utils/format";
 
 type Recorder = ReturnType<typeof useRecorder>;
+type RecordingTake = Pick<TrainingSession, "recording_attempts_started" | "speaking_started_at">;
+
+function sameTake(left: RecordingTake | null, right: RecordingTake | undefined) {
+  return !!left && !!right && left.recording_attempts_started === right.recording_attempts_started
+    && left.speaking_started_at === right.speaking_started_at;
+}
 
 export function TrainingPage() {
   const { sessionId } = useParams();
@@ -34,13 +40,17 @@ function TrainingPageContent() {
   const client = useQueryClient();
   const [localAudio, setLocalAudio] = useState<string | null>(null);
   const [pendingBlob, setPendingBlob] = useState<{ blob: Blob; duration: number } | null>(null);
-  const query = useQuery({ queryKey: ["session", id], queryFn: () => api<TrainingSession>(`/sessions/${id}`), enabled: Number.isFinite(id), refetchInterval: 5000 });
+  const query = useQuery({ queryKey: ["session", id], queryFn: ({ signal }) => api<TrainingSession>(`/sessions/${id}`, { signal }), enabled: Number.isFinite(id), refetchInterval: 5000 });
   const audioKey = cacheKey(`recording:${id}`);
   const [cacheError, setCacheError] = useState("");
   const finishing = useRef(false);
+  const starting = useRef(false);
+  const activeTake = useRef<RecordingTake | null>(null);
+  const [startingRecording, setStartingRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState("");
   const recorder = useRecorder((result) => {
-    if (!query.data || !["preparing", "speaking", "review"].includes(query.data.phase)) return;
-    const attempt = query.data.recording_attempts_started + (query.data.phase === "speaking" ? 0 : 1);
+    if (!activeTake.current) return;
+    const attempt = activeTake.current.recording_attempts_started;
     void recordingCache(audioKey, "write", { ...result, attempt }).catch(() => setCacheError("本机录音缓存不可用，请勿关闭页面，完成后及时上传。"));
   });
   const restored = useRef(false);
@@ -57,6 +67,35 @@ function TrainingPageContent() {
     }).catch(() => setCacheError("无法读取本机录音缓存，请检查浏览器存储设置。"));
   }, [query.data, audioKey, id]);
   const refresh = useCallback(async () => { await client.invalidateQueries({ queryKey: ["session", id] }); await client.invalidateQueries({ queryKey: ["tasks"] }); }, [client, id]);
+  const startRecording = async (retry = false) => {
+    if (starting.current || finishing.current || recorder.recording) return;
+    starting.current = true;
+    setStartingRecording(true);
+    setRecordingError("");
+    try {
+      const deviceId = recorder.selectedDeviceId || undefined;
+      // Request permission before consuming a server attempt. Cancel both older
+      // polls and any poll started while the mutation was in flight.
+      await recorder.prepare(deviceId);
+      await client.cancelQueries({ queryKey: ["session", id] });
+      const next = await api<TrainingSession>(`/sessions/${id}/${retry ? "retry-speaking" : "start-speaking"}`, { method: "POST" });
+      await client.cancelQueries({ queryKey: ["session", id] });
+      client.setQueryData(["session", id], next);
+      if (next.phase !== "speaking") throw new Error("当前轮次已结束，请刷新后重试。");
+      activeTake.current = next;
+      await recorder.start(deviceId);
+      setPendingBlob(null);
+      setLocalAudio(null);
+      void recordingCache(audioKey, "delete").catch(() => undefined);
+    } catch (error) {
+      activeTake.current = null;
+      setRecordingError(error instanceof Error ? error.message : "无法开始录音，请检查麦克风权限后重试。");
+      throw error;
+    } finally {
+      starting.current = false;
+      setStartingRecording(false);
+    }
+  };
   const upload = useMutation({
     mutationFn: async (payload: { blob: Blob; duration: number }) => {
       const form = new FormData();
@@ -75,14 +114,15 @@ function TrainingPageContent() {
     onSuccess: async () => { setPendingBlob(null); await recordingCache(audioKey, "delete").catch(() => undefined); void refresh(); },
   });
   const finish = useMutation({ mutationFn: () => api<TrainingSession>(`/sessions/${id}/finish-speaking`, { method: "POST" }) });
-  const finishAndUpload = useCallback(async () => {
-    if (finishing.current) return;
+  const finishAndUpload = useCallback(async (expectedTake?: RecordingTake) => {
+    if (starting.current || finishing.current) return;
+    if (expectedTake && !sameTake(activeTake.current, expectedTake)) return;
     finishing.current = true;
     try {
       if (!recorder.recording) { await finish.mutateAsync(); if (pendingBlob) await upload.mutateAsync(pendingBlob); await refresh(); return; }
       const result = await recorder.stop();
       setPendingBlob(result);
-      await recordingCache(audioKey, "write", { ...result, attempt: query.data?.recording_attempts_started || 1 }).catch(() => setCacheError("本机录音缓存不可用"));
+      await recordingCache(audioKey, "write", { ...result, attempt: activeTake.current?.recording_attempts_started || query.data?.recording_attempts_started || 1 }).catch(() => setCacheError("本机录音缓存不可用"));
       setLocalAudio((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(result.blob); });
       await finish.mutateAsync();
       await upload.mutateAsync(result);
@@ -91,8 +131,10 @@ function TrainingPageContent() {
     finally { finishing.current = false; }
   }, [finish, recorder, refresh, upload, pendingBlob, audioKey, query.data?.recording_attempts_started]);
   useEffect(() => {
-    if (query.data?.phase === "review" && recorder.recording) void finishAndUpload();
-  }, [query.data?.phase, recorder.recording, finishAndUpload]);
+    if (!starting.current && query.data?.phase === "review" && recorder.recording && sameTake(activeTake.current, query.data)) {
+      void finishAndUpload(query.data);
+    }
+  }, [query.data, recorder.recording, startingRecording, finishAndUpload]);
   useEffect(() => () => { if (localAudio) URL.revokeObjectURL(localAudio); }, [localAudio]);
   if (query.isLoading) return <LoadingState label="正在恢复训练状态" />;
   if (!query.data) return <ErrorState message={query.error?.message} retry={() => query.refetch()} />;
@@ -101,15 +143,16 @@ function TrainingPageContent() {
   return <div className="page-enter mx-auto max-w-5xl">
     <TaskLeaveGuard active={session.phase !== "submitted"} scope={`oral:${id}`} onSave={async () => { if (recorder.recording) await finishAndUpload(); }} />
     {cacheError && <InlineMessage>{cacheError}</InlineMessage>}
+    {recordingError && <InlineMessage>{recordingError}</InlineMessage>}
     {closed && session.phase !== "submitted" && <InlineMessage>口语任务已关闭或截止，当前进度与本机草稿仍保留。教师重新开放后可继续。</InlineMessage>}
     <ReturnHistory session={session} /><TrainingSteps phase={session.phase} />
     {pendingBlob && !recorder.recording && <div className="surface mb-5 p-5"><h2 className="section-title">已恢复未上传的录音</h2><p className="my-3 text-sm text-muted">中断前已录制的内容保存在本机，可回听并上传。刷新后的麦克风需要重新授权。</p>{localAudio && <AudioPlayer src={localAudio} durationHint={pendingBlob.duration} />}<Button className="mt-4" disabled={closed} loading={upload.isPending} onClick={() => { void finishAndUpload().catch(() => undefined); }}>上传已恢复录音</Button></div>}
     {session.phase === "mic_check" && <MicCheckStage session={session} recorder={recorder} onRefresh={refresh} />}
     {session.phase === "drawing" && <DrawStage session={session} onRefresh={refresh} />}
     {session.phase === "researching" && <ResearchStage session={session} onRefresh={refresh} />}
-    {session.phase === "preparing" && <PreparationStage session={session} recorder={recorder} onRefresh={refresh} />}
-    {session.phase === "speaking" && (!pendingBlob || recorder.recording) && <SpeakingStage session={session} recorder={recorder} onFinish={finishAndUpload} onRefresh={refresh} />}
-    {session.phase === "review" && <ReviewStage session={session} localAudio={localAudio} pendingBlob={pendingBlob} upload={upload} recorder={recorder} onRestart={async () => { setPendingBlob(null); setLocalAudio(null); await recordingCache(audioKey, "delete").catch(() => undefined); }} onRefresh={refresh} />}
+    {session.phase === "preparing" && <PreparationStage session={session} onStart={() => startRecording()} />}
+    {session.phase === "speaking" && (!pendingBlob || recorder.recording) && <SpeakingStage key={`${session.recording_attempts_started}:${session.speaking_started_at}`} session={session} recorder={recorder} starting={startingRecording} onFinish={() => finishAndUpload(session)} onStart={() => startRecording()} />}
+    {session.phase === "review" && <ReviewStage session={session} localAudio={localAudio} pendingBlob={pendingBlob} upload={upload} onRestart={() => startRecording(true)} onRefresh={refresh} />}
     {session.phase === "submitted" && <SubmittedStage session={session} />}
   </div>;
 }
@@ -135,35 +178,35 @@ function ResearchStage({ session, onRefresh }: { session: TrainingSession; onRef
   return <section className="surface mx-auto max-w-3xl overflow-hidden"><div className="border-b border-black/[.06] px-6 py-6 text-center sm:px-8"><Badge tone="blue">资料搜集</Badge><h1 className="mx-auto mt-4 max-w-2xl text-xl font-semibold leading-8">{session.final_topic?.prompt}</h1></div><div className="p-7 text-center sm:p-10"><span className="mx-auto mb-6 grid h-12 w-12 place-items-center rounded-full bg-blue-50 text-accent"><BookOpen className="h-5 w-5" /></span><CountdownRing remaining={remaining} total={session.task.research_seconds} label="搜集剩余" /><p className="mx-auto mt-7 max-w-lg text-sm leading-7 text-muted">利用这段时间查找事实、案例和相关表达。倒计时结束后将自动进入 {formatDuration(session.task.preparation_seconds)} 草稿整理阶段。</p><Button className="mt-6" variant="secondary" icon={<SkipForward className="h-4 w-4" />} loading={finish.isPending} onClick={() => finish.mutate()}>提前结束搜集</Button>{finish.error && <p className="mt-3 text-sm text-danger">{finish.error.message}</p>}</div></section>;
 }
 
-function PreparationStage({ session, recorder, onRefresh }: { session: TrainingSession; recorder: Recorder; onRefresh: () => Promise<void> }) {
+function PreparationStage({ session, onStart }: { session: TrainingSession; onStart: () => Promise<void> }) {
   const draft = useDurableDraft(`oral-note:${session.id}`, session.note, session.task.status === "published", async (content) => {
     await api(`/sessions/${session.id}/note`, { method: "PATCH", body: JSON.stringify({ content }) });
     useTrainingStore.getState().setNoteDraft(session.id, content);
   });
   const editorRef = useEditorPosition(`oral:${session.id}`, draft.content !== null);
-  const start = useMutation({ mutationFn: async () => { await draft.flush(); const content = draft.content ?? session.note; if (content !== session.note) await api<TrainingSession>(`/sessions/${session.id}/note`, { method: "PATCH", body: JSON.stringify({ content }) }); const deviceId = recorder.selectedDeviceId || undefined; await recorder.start(deviceId); try { return await api<TrainingSession>(`/sessions/${session.id}/start-speaking`, { method: "POST" }); } catch (error) { await recorder.stop().catch(() => undefined); throw error; } }, onSuccess: onRefresh });
+  const start = useMutation({ mutationFn: async () => { await draft.flush(); const content = draft.content ?? session.note; if (content !== session.note) await api<TrainingSession>(`/sessions/${session.id}/note`, { method: "PATCH", body: JSON.stringify({ content }) }); await onStart(); } });
   const onExpire = useCallback(() => { playTimerTone(); }, []);
   const remaining = useCountdown(session.preparation_ends_at, session.server_time, onExpire);
   const waitingForCountdown = !session.task.allow_early_finish && remaining > 0;
   return <section className="grid gap-5 lg:grid-cols-[.9fr_1.1fr]"><div className="surface flex flex-col p-5 sm:p-8"><div><Badge tone="blue">准备整理</Badge><h1 className="mt-4 break-words text-xl font-semibold leading-8">{session.final_topic?.prompt}</h1></div><div className="my-auto py-6 sm:py-7"><CountdownRing remaining={remaining} total={session.task.preparation_seconds} label={remaining > 0 ? "整理剩余" : "整理完成"} /></div><div className="text-center"><Button size="lg" icon={<Mic2 className="h-4 w-4" />} disabled={waitingForCountdown} loading={start.isPending} onClick={() => start.mutate()}>开始演讲并录音</Button><p className="mt-3 text-xs text-muted">整理结束后不会自动计入演讲时间，请主动开始。</p></div>{start.error && <p className="mt-3 text-center text-sm text-danger">{start.error.message}</p>}</div><div className="surface flex min-h-[420px] flex-col p-5 sm:min-h-[540px] sm:p-8"><div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="section-title">演讲草稿</h2><p className="mt-1 text-sm text-muted">整理演讲结构和提示词，正式演讲时仍会显示。</p></div><span className={`flex items-center gap-1 text-xs ${draft.state === "error" ? "text-danger" : "text-muted"}`}><Save className="h-3.5 w-3.5" />{draft.state === "saving" ? "保存中" : draft.state === "error" ? "同步失败，本机已缓存" : draft.state === "local" ? "本机已缓存" : "已同步"}</span></div><textarea ref={editorRef} value={draft.content ?? session.note} onChange={(event) => { draft.update(event.target.value); useTrainingStore.getState().setNoteDraft(session.id, event.target.value); }} className="mt-5 min-h-[280px] flex-1 resize-none rounded-[14px] border border-black/[.08] bg-[#fafafa] p-4 text-[16px] leading-7 outline-none focus:border-accent/50 sm:min-h-[390px] sm:text-[15px]" placeholder="开场…\n观点与论据…\n案例…\n结尾…" /></div></section>;
 }
 
-function SpeakingStage({ session, recorder, onFinish, onRefresh }: { session: TrainingSession; recorder: Recorder; onFinish: () => Promise<void>; onRefresh: () => Promise<void> }) {
-  const begin = useMutation({ mutationFn: async () => { await recorder.prepare(); await api<TrainingSession>(`/sessions/${session.id}/start-speaking`, { method: "POST" }); await recorder.start(); }, onSuccess: onRefresh });
+function SpeakingStage({ session, recorder, starting, onFinish, onStart }: { session: TrainingSession; recorder: Recorder; starting: boolean; onFinish: () => Promise<void>; onStart: () => Promise<void> }) {
+  const begin = useMutation({ mutationFn: onStart });
   const finishGuard = useRef(false);
   const expire = useCallback(() => { if (!finishGuard.current) { finishGuard.current = true; playTimerTone(); void onFinish(); } }, [onFinish]);
   const remaining = useCountdown(session.speaking_ends_at, session.server_time, expire);
-  return <section className="grid gap-5 lg:grid-cols-[1fr_.85fr]"><div className="surface overflow-hidden"><div className="border-b border-black/[.06] px-6 py-5 text-center"><Badge tone="red">正式演讲</Badge><h1 className="mx-auto mt-3 max-w-2xl text-lg font-semibold leading-7">{session.final_topic?.prompt}</h1></div><div className="p-7 text-center sm:p-10"><CountdownRing remaining={remaining} total={session.task.speaking_seconds} label="演讲剩余" /><div className="mx-auto mt-5 max-w-md"><div className="flex h-12 items-center gap-1 rounded-[12px] bg-black/[.035] px-4" aria-label="实时音量">{Array.from({ length: 24 }, (_, i) => <span key={i} className={`h-1 flex-1 rounded-full transition-all duration-100 ${i / 24 < recorder.volume ? "bg-accent" : "bg-black/10"}`} style={{ transform: `scaleY(${i / 24 < recorder.volume ? 1 + recorder.volume * 4 : 1})` }} />)}</div><p className={`mt-3 flex items-center justify-center gap-2 text-sm ${recorder.recording ? "text-danger" : "text-muted"}`}><span className={`h-2 w-2 rounded-full ${recorder.recording ? "animate-pulse bg-danger" : "bg-black/20"}`} />{recorder.recording ? "正在录音" : recorder.permission === "denied" ? "麦克风授权失败" : "等待恢复录音"}</p></div>{begin.error && <InlineMessage>{begin.error.message}</InlineMessage>}<div className="mt-6 flex justify-center">{recorder.recording ? <Button variant="danger" size="lg" icon={<Square className="h-4 w-4 fill-current" />} onClick={() => void onFinish()}>结束演讲</Button> : <Button size="lg" icon={<Mic2 className="h-4 w-4" />} loading={begin.isPending} onClick={() => begin.mutate()}>恢复录音</Button>}</div><p className="mt-4 text-xs text-muted">倒计时结束时，录音会自动停止。</p></div></div><aside className="surface flex min-h-[420px] flex-col p-6 sm:p-8"><div><h2 className="section-title">演讲草稿</h2><p className="mt-1 text-sm text-muted">准备阶段保存的内容，仅供演讲时提示。</p></div><div className="mt-5 flex-1 whitespace-pre-wrap rounded-[14px] border border-black/[.07] bg-[#fafafa] p-4 text-[15px] leading-7 text-ink">{session.note || <span className="text-muted">准备阶段未填写草稿。</span>}</div></aside></section>;
+  return <section className="grid gap-5 lg:grid-cols-[1fr_.85fr]"><div className="surface overflow-hidden"><div className="border-b border-black/[.06] px-6 py-5 text-center"><Badge tone="red">正式演讲</Badge><h1 className="mx-auto mt-3 max-w-2xl text-lg font-semibold leading-7">{session.final_topic?.prompt}</h1></div><div className="p-7 text-center sm:p-10"><CountdownRing remaining={remaining} total={session.task.speaking_seconds} label="演讲剩余" /><div className="mx-auto mt-5 max-w-md"><div className="flex h-12 items-center gap-1 rounded-[12px] bg-black/[.035] px-4" aria-label="实时音量">{Array.from({ length: 24 }, (_, i) => <span key={i} className={`h-1 flex-1 rounded-full transition-all duration-100 ${i / 24 < recorder.volume ? "bg-accent" : "bg-black/10"}`} style={{ transform: `scaleY(${i / 24 < recorder.volume ? 1 + recorder.volume * 4 : 1})` }} />)}</div><p className={`mt-3 flex items-center justify-center gap-2 text-sm ${recorder.recording ? "text-danger" : "text-muted"}`}><span className={`h-2 w-2 rounded-full ${recorder.recording ? "animate-pulse bg-danger" : "bg-black/20"}`} />{recorder.recording ? "正在录音" : recorder.permission === "denied" ? "麦克风授权失败" : "等待恢复录音"}</p></div>{begin.error && <InlineMessage>{begin.error.message}</InlineMessage>}<div className="mt-6 flex justify-center">{recorder.recording ? <Button variant="danger" size="lg" disabled={starting} icon={<Square className="h-4 w-4 fill-current" />} onClick={() => void onFinish()}>结束演讲</Button> : <Button size="lg" icon={<Mic2 className="h-4 w-4" />} loading={starting || begin.isPending} onClick={() => begin.mutate()}>恢复录音</Button>}</div><p className="mt-4 text-xs text-muted">倒计时结束时，录音会自动停止。</p></div></div><aside className="surface flex min-h-[420px] flex-col p-6 sm:p-8"><div><h2 className="section-title">演讲草稿</h2><p className="mt-1 text-sm text-muted">准备阶段保存的内容，仅供演讲时提示。</p></div><div className="mt-5 flex-1 whitespace-pre-wrap rounded-[14px] border border-black/[.07] bg-[#fafafa] p-4 text-[15px] leading-7 text-ink">{session.note || <span className="text-muted">准备阶段未填写草稿。</span>}</div></aside></section>;
 }
 
-function ReviewStage({ session, localAudio, pendingBlob, upload, recorder, onRestart, onRefresh }: { session: TrainingSession; localAudio: string | null; pendingBlob: { blob: Blob; duration: number } | null; upload: ReturnType<typeof useMutation<Recording, Error, { blob: Blob; duration: number }>>; recorder: Recorder; onRestart: () => Promise<void>; onRefresh: () => Promise<void> }) {
+function ReviewStage({ session, localAudio, pendingBlob, upload, onRestart, onRefresh }: { session: TrainingSession; localAudio: string | null; pendingBlob: { blob: Blob; duration: number } | null; upload: ReturnType<typeof useMutation<Recording, Error, { blob: Blob; duration: number }>>; onRestart: () => Promise<void>; onRefresh: () => Promise<void> }) {
   const navigate = useNavigate();
   const recording = session.recordings.find((x) => x.is_selected) || session.recordings.at(-1);
-  const retry = useMutation({ mutationFn: async () => { const deviceId = recorder.selectedDeviceId || undefined; await recorder.prepare(deviceId); const result = await api<TrainingSession>(`/sessions/${session.id}/retry-speaking`, { method: "POST" }); await onRestart(); await recorder.start(deviceId); return result; }, onSuccess: onRefresh });
+  const retry = useMutation({ mutationFn: onRestart });
   const submit = useMutation({ mutationFn: () => api<TrainingSession>(`/sessions/${session.id}/submit`, { method: "POST", body: JSON.stringify({ recording_id: recording?.id }) }), onSuccess: async () => { forgetTask(`/app/training/${session.id}`); await recordingCache(cacheKey(`recording:${session.id}`), "delete").catch(() => undefined); await onRefresh(); navigate(`/app/history/${session.id}`); } });
   const source = localAudio || recording?.stream_url || null;
   const speakingSeconds = session.speaking_started_at && session.speaking_finished_at ? Math.max(0, (new Date(session.speaking_finished_at).getTime() - new Date(session.speaking_started_at).getTime()) / 1000) : 0;
-  return <section className="surface overflow-hidden"><div className="border-b border-black/[.06] p-6 sm:p-8"><Badge tone="green">训练完成</Badge><h1 className="mt-4 text-2xl font-semibold">检查并提交录音</h1><p className="mt-2 text-sm text-muted">确认录音可以正常播放后提交。</p></div><div className="grid gap-7 p-6 sm:p-8 lg:grid-cols-[.9fr_1.1fr]"><div><h2 className="text-sm font-semibold">本次题目</h2><p className="mt-3 text-lg font-medium leading-8">{session.final_topic?.prompt}</p><div className="mt-5 flex gap-5 text-xs text-muted"><span>准备 {formatDuration(session.task.preparation_seconds)}</span><span>表达 {formatDuration(speakingSeconds)}</span></div><h2 className="mt-8 text-sm font-semibold">演讲录音</h2>{source ? <AudioPlayer className="mt-3" src={source} durationHint={pendingBlob?.duration || recording?.duration_seconds || speakingSeconds} /> : <div className="mt-3 rounded-[12px] bg-orange-50 p-4 text-sm text-warning">录音尚未上传。</div>}{recording && <AudioDownloadButton className="mt-3" src={recording.download_url} filename={`speaking-${recording.id}.mp4`} />}{upload.isPending && <p className="mt-3 flex items-center gap-2 text-xs text-muted"><UploadCloud className="h-3.5 w-3.5 animate-pulse" />正在上传录音</p>}{upload.error && <div className="mt-3"><InlineMessage>{upload.error.message}</InlineMessage>{pendingBlob && <Button className="mt-2" size="sm" variant="secondary" onClick={() => upload.mutate(pendingBlob)}>重新上传</Button>}</div>}<Button className="mt-5" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} disabled={session.rerecords_remaining <= 0} loading={retry.isPending} onClick={() => retry.mutate()}>重新录制 {session.rerecords_remaining > 0 ? `(${session.rerecords_remaining})` : ""}</Button>{retry.error && <p className="mt-2 text-sm text-danger">{retry.error.message}</p>}</div><div className="flex flex-col justify-end">{submit.error && <div className="mb-3"><InlineMessage>{submit.error.message}</InlineMessage></div>}<Button className="w-full" size="lg" icon={<Send className="h-4 w-4" />} disabled={!recording || upload.isPending} loading={submit.isPending} onClick={() => submit.mutate()}>提交演讲录音</Button></div></div></section>;
+  return <section className="surface overflow-hidden"><div className="border-b border-black/[.06] p-6 sm:p-8"><Badge tone="green">训练完成</Badge><h1 className="mt-4 text-2xl font-semibold">检查并提交录音</h1><p className="mt-2 text-sm text-muted">确认录音可以正常播放后提交。</p></div><div className="grid gap-7 p-6 sm:p-8 lg:grid-cols-[.9fr_1.1fr]"><div><h2 className="text-sm font-semibold">本次题目</h2><p className="mt-3 text-lg font-medium leading-8">{session.final_topic?.prompt}</p><div className="mt-5 flex gap-5 text-xs text-muted"><span>准备 {formatDuration(session.task.preparation_seconds)}</span><span>表达 {formatDuration(speakingSeconds)}</span></div><h2 className="mt-8 text-sm font-semibold">演讲录音</h2>{source ? <AudioPlayer className="mt-3" src={source} durationHint={pendingBlob?.duration || recording?.duration_seconds || speakingSeconds} /> : <div className="mt-3 rounded-[12px] bg-orange-50 p-4 text-sm text-warning">录音尚未上传。</div>}{recording && <AudioDownloadButton className="mt-3" src={recording.download_url} filename={`speaking-${recording.id}.mp4`} />}{upload.isPending && <p className="mt-3 flex items-center gap-2 text-xs text-muted"><UploadCloud className="h-3.5 w-3.5 animate-pulse" />正在上传录音</p>}{upload.error && <div className="mt-3"><InlineMessage>{upload.error.message}</InlineMessage>{pendingBlob && <Button className="mt-2" size="sm" variant="secondary" onClick={() => upload.mutate(pendingBlob)}>重新上传</Button>}</div>}<Button className="mt-5" variant="secondary" icon={<RefreshCw className="h-4 w-4" />} disabled={session.rerecords_remaining <= 0 || upload.isPending} loading={retry.isPending} onClick={() => retry.mutate()}>重新录制 {session.rerecords_remaining > 0 ? `(${session.rerecords_remaining})` : ""}</Button>{retry.error && <p className="mt-2 text-sm text-danger">{retry.error.message}</p>}</div><div className="flex flex-col justify-end">{submit.error && <div className="mb-3"><InlineMessage>{submit.error.message}</InlineMessage></div>}<Button className="w-full" size="lg" icon={<Send className="h-4 w-4" />} disabled={!recording || upload.isPending || retry.isPending} loading={submit.isPending} onClick={() => submit.mutate()}>提交演讲录音</Button></div></div></section>;
 }
 
 function SubmittedStage({ session }: { session: TrainingSession }) {
