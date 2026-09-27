@@ -88,6 +88,55 @@ def test_return_original_recording_can_be_resubmitted(client, course, session, d
     assert result.json()["note_locked"]
 
 
+def test_teacher_can_return_review_with_existing_recordings(client, course, session, db_session):
+    item = db_session.get(TrainingSession, session["id"])
+    item.phase = SessionPhase.REVIEW
+    item.recording_attempts_started = 1
+    item.recordings.append(Recording(file_path="old.webm", mime_type="audio/webm", size_bytes=8,
+                                     duration_seconds=60, attempt_number=1, is_selected=True))
+    db_session.commit()
+    url = f"/api/v1/sessions/{item.id}"
+    returned = client.post(url + "/return", headers=course["teacher"], json={"reason": "录音时长异常，请重新录制"})
+    assert returned.status_code == 200, returned.text
+    body = returned.json()
+    assert body["phase"] == "review" and body["recording_attempts_started"] == 1
+    assert body["return_history"][-1]["recording_id"] == item.recordings[0].id
+    assert body["rerecords_remaining"] == 2
+    assert client.post(url + "/return", headers=course["teacher"], json={"reason": " "}).status_code == 400
+
+
+def test_tiny_recording_is_rejected_without_consuming_a_valid_attempt(client, course, session, db_session, monkeypatch):
+    item = db_session.get(TrainingSession, session["id"])
+    item.phase = SessionPhase.REVIEW
+    item.recording_attempts_started = 1
+    db_session.commit()
+    monkeypatch.setattr(TrainingService, "_convert_to_mp4", staticmethod(lambda *args: False))
+    url = f"/api/v1/sessions/{item.id}"
+    failed = client.post(
+        url + "/recordings",
+        headers=course["student"],
+        files={"file": ("recording.webm", b"\x1aE\xdf\xa3test", "audio/webm")},
+        data={"duration_seconds": "0.01"},
+    )
+    assert failed.status_code == 400 and failed.json()["error"]["code"] == "RECORDING_TOO_SHORT"
+    db_session.refresh(item)
+    assert item.recording_attempts_started == 0 and item.recordings == []
+
+
+def test_tiny_recording_cannot_be_submitted(client, course, session, db_session):
+    item = db_session.get(TrainingSession, session["id"])
+    item.phase = SessionPhase.REVIEW
+    item.recording_attempts_started = 1
+    item.recordings.append(Recording(file_path="tiny.webm", mime_type="audio/webm", size_bytes=8,
+                                     duration_seconds=0.01, attempt_number=1, is_selected=True))
+    db_session.commit()
+    url = f"/api/v1/sessions/{item.id}"
+    response = client.post(url + "/submit", headers=course["student"], json={"recording_id": item.recordings[0].id})
+    assert response.status_code == 400 and response.json()["error"]["code"] == "RECORDING_TOO_SHORT"
+    db_session.refresh(item)
+    assert item.phase == SessionPhase.REVIEW and item.submitted_at is None
+
+
 def test_failed_upload_does_not_consume_attempt(client, course, session, db_session, monkeypatch):
     item = db_session.get(TrainingSession, session["id"])
     item.phase = SessionPhase.REVIEW

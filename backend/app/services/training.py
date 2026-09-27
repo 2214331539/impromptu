@@ -1,3 +1,4 @@
+import math
 import secrets
 import shutil
 import subprocess
@@ -57,6 +58,10 @@ def aware(value: datetime | None) -> datetime | None:
 
 
 class TrainingService:
+    # A MediaRecorder may emit a valid container with only a few milliseconds
+    # of data when a stale page state stops a new take immediately. Such a
+    # recording is not useful for submission and must not consume an attempt.
+    min_recording_seconds = 1.0
     allowed_mime_types = {
         "audio/webm": ".webm",
         "video/webm": ".webm",
@@ -282,6 +287,9 @@ class TrainingService:
         self._reconcile(session)
         if session.phase != SessionPhase.REVIEW:
             raise AppError("INVALID_PHASE", "请先完成演讲", 409)
+        if not math.isfinite(duration_seconds) or duration_seconds < self.min_recording_seconds:
+            self._release_failed_attempt(session, session.recording_attempts_started)
+            raise AppError("RECORDING_TOO_SHORT", "录音时长不足 1 秒，请重新录制", 400)
         mime_type = (file.content_type or "").split(";")[0].strip().lower()
         attempt = session.recording_attempts_started
         if attempt <= 0 or attempt > session.task.rerecord_limit + 1 + len(session.return_history):
@@ -471,6 +479,8 @@ class TrainingService:
         recording = next((x for x in session.recordings if x.id == data.recording_id), None)
         if not recording:
             raise AppError("RECORDING_REQUIRED", "请选择已上传的录音", 400)
+        if recording.duration_seconds < self.min_recording_seconds:
+            raise AppError("RECORDING_TOO_SHORT", "所选录音时长不足 1 秒，请重新录制", 400)
         for item in session.recordings:
             item.is_selected = item.id == recording.id
         session.self_assessment = data.self_assessment.strip()
@@ -485,7 +495,11 @@ class TrainingService:
         session = self.sessions.get(session_id, for_update=True)
         if not session or session.task.teacher_id != teacher.id:
             raise AppError("SESSION_NOT_FOUND", "提交不存在或无权访问", 404)
-        if session.phase == SessionPhase.REVIEW and not session.recordings:
+        if not reason.strip():
+            raise AppError("RETURN_REASON_REQUIRED", "请填写退回原因", 400)
+        if session.phase == SessionPhase.REVIEW:
+            if session.return_history:
+                raise AppError("NOT_SUBMITTED", "该作业已退回，请等待学生重新提交", 409)
             if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
                 raise AppError("TASK_CLOSED", "请先重新开放任务并延长截止时间，再恢复作业", 409)
             session.return_history = [*session.return_history, {
@@ -493,10 +507,11 @@ class TrainingService:
                 "returned_at": utc_now().isoformat(),
                 "teacher_id": teacher.id,
                 "submitted_at": None,
-                "recording_id": None,
+                "recording_id": next((r.id for r in session.recordings if r.is_selected), None),
                 "evaluation": None,
             }]
-            session.recording_attempts_started = 0
+            if not session.recordings:
+                session.recording_attempts_started = 0
             session.submitted_at = None
             if session.note:
                 session.note.locked = False
@@ -506,8 +521,6 @@ class TrainingService:
             raise AppError("NOT_SUBMITTED", "只能退回已提交的口语作业，请刷新页面", 409)
         if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
             raise AppError("TASK_CLOSED", "请先重新开放任务并延长截止时间，再退回作业", 409)
-        if not reason.strip():
-            raise AppError("RETURN_REASON_REQUIRED", "请填写退回原因", 400)
         session.return_history = [*session.return_history, {
             "reason": reason.strip(),
             "returned_at": utc_now().isoformat(),
