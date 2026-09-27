@@ -33,11 +33,12 @@ export function ReturnSubmission({ session }: { session: TrainingSession }) {
       setReason("");
     },
   });
-  if (session.phase !== "submitted") return null;
+  const canReturnReview = session.phase === "review" && session.recordings.length > 0;
+  if (session.phase !== "submitted" && !canReturnReview) return null;
   const closed = session.task.status !== "published" || new Date(session.task.due_at).getTime() <= Date.now();
   return <section className="surface mb-5 p-5">
     <h2 className="section-title">退回修改</h2>
-    <p className="mt-2 text-sm text-muted">学生误交或需要重新录制时，可退回作业。当前评价将撤回并存入退回记录，学生重新提交后再评价。</p>
+    <p className="mt-2 text-sm text-muted">学生误交或录音异常时，可退回作业。学生重新录制或确认有效录音后再提交。</p>
     {closed && <p className="mt-2 text-sm text-warning">请先在口语任务管理中重新开放任务并延长截止时间。</p>}
     <label htmlFor="oral-return-reason" className="mt-4 block text-sm font-medium">退回原因</label>
     <textarea id="oral-return-reason" className="field mt-2 min-h-24" maxLength={1000} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：录音不完整，请重新录制后提交。" />
