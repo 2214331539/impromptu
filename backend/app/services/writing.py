@@ -99,7 +99,7 @@ class WritingService:
             and not settings.ai_import_configured
         ):
             raise AppError("WRITING_GRAMMAR_NOT_CONFIGURED", "语法检测未配置，无法启用该策略", 503)
-        assignment = WritingAssignment(teacher_id=teacher.id, **data.model_dump())
+        assignment = WritingAssignment(teacher_id=teacher.id, **{**data.model_dump(), "allow_late_submission": True})
         self.db.add(assignment)
         self.db.commit()
         return self._assignment_out(self.repository.assignment(assignment.id), teacher.id)
@@ -121,6 +121,7 @@ class WritingService:
             raise AppError("WRITING_GRAMMAR_NOT_CONFIGURED", "语法检测未配置", 503)
         for key, value in data.model_dump().items():
             setattr(assignment, key, value)
+        assignment.allow_late_submission = True
         self.db.commit()
         self.db.expire_all()
         return self._assignment_out(self.repository.assignment(assignment_id), teacher.id)
@@ -444,8 +445,6 @@ class WritingService:
             raise AppError("WRITING_ASSIGNMENT_CLOSED", "写作任务已关闭", 409)
         if now < aware(assignment.starts_at):
             raise AppError("WRITING_ASSIGNMENT_NOT_STARTED", "写作任务尚未开始", 400)
-        if now > aware(assignment.due_at) and not assignment.allow_late_submission:
-            raise AppError("WRITING_ASSIGNMENT_CLOSED", "写作任务已截止", 409)
 
     def _validate_content(self, assignment: WritingAssignment, content: str) -> None:
         count = count_words(content)
@@ -485,7 +484,8 @@ class WritingService:
             max_words=assignment.max_words,
             grammar_hint_mode=assignment.grammar_hint_mode,
             revision_limit=assignment.revision_limit,
-            allow_late_submission=assignment.allow_late_submission,
+            # Kept for older clients; published tasks now always accept late work.
+            allow_late_submission=True,
             participant_count=participant_count,
             submitted_count=submitted_count,
             finalized_count=finalized_count,

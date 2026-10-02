@@ -342,7 +342,7 @@ class WritingAssignment(Base, TimestampMixin):
         default=WritingGrammarHintMode.OFF,
     )
     revision_limit: Mapped[int] = mapped_column(Integer, default=1)
-    allow_late_submission: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_late_submission: Mapped[bool] = mapped_column(Boolean, default=True)
 
     classroom: Mapped[ClassRoom] = relationship()
     teacher: Mapped[User] = relationship()

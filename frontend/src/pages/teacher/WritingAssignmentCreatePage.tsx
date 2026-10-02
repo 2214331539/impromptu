@@ -29,8 +29,8 @@ function WritingAssignmentCreatePageContent() {
   const loaded = useRef(false);
   const existing = useQuery({ queryKey: ["writing-assignment", assignmentId], queryFn: () => api<WritingAssignment>(`/writing/assignments/${assignmentId}`), enabled: !!assignmentId });
   const classes = useQuery({ queryKey: ["classes"], queryFn: () => api<ClassRoom[]>("/classes") });
-  const [form, setForm, clearForm] = useCachedState(scope, { title: "", instructions: "", classId: 0, startsAt: localDate(0), dueAt: localDate(7), minWords: 50, maxWords: "", grammarHintMode: "after_submit" as WritingGrammarHintMode, revisionLimit: 1, allowLate: false });
-  const { title, instructions, classId, startsAt, dueAt, minWords, maxWords, grammarHintMode, revisionLimit, allowLate } = form;
+  const [form, setForm, clearForm] = useCachedState(scope, { title: "", instructions: "", classId: 0, startsAt: localDate(0), dueAt: localDate(7), minWords: 50, maxWords: "", grammarHintMode: "after_submit" as WritingGrammarHintMode, revisionLimit: 1 });
+  const { title, instructions, classId, startsAt, dueAt, minWords, maxWords, grammarHintMode, revisionLimit } = form;
   function field<K extends keyof typeof form>(name: K, value: typeof form[K]) { setForm((old) => ({ ...old, [name]: value })); rememberTask(path, title || "写作任务编辑草稿"); }
   useEffect(() => {
     if (loaded.current || (assignmentId && !existing.data)) return;
@@ -38,7 +38,7 @@ function WritingAssignmentCreatePageContent() {
     if (readCache(cacheKey(scope)) || !existing.data) return;
     const item = existing.data;
     const local = (value: string) => { const d = new Date(value); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
-    setForm({ title: item.title, instructions: item.instructions, classId: item.class_id, startsAt: local(item.starts_at), dueAt: local(item.due_at), minWords: item.min_words, maxWords: item.max_words?.toString() ?? "", grammarHintMode: item.grammar_hint_mode, revisionLimit: item.revision_limit, allowLate: item.allow_late_submission });
+    setForm({ title: item.title, instructions: item.instructions, classId: item.class_id, startsAt: local(item.starts_at), dueAt: local(item.due_at), minWords: item.min_words, maxWords: item.max_words?.toString() ?? "", grammarHintMode: item.grammar_hint_mode, revisionLimit: item.revision_limit });
   }, [existing.data, assignmentId, scope]);
   const create = useMutation({
     mutationFn: () =>
@@ -54,7 +54,7 @@ function WritingAssignmentCreatePageContent() {
           max_words: maxWords ? Number(maxWords) : null,
           grammar_hint_mode: grammarHintMode,
           revision_limit: revisionLimit,
-          allow_late_submission: allowLate,
+          allow_late_submission: true,
         }),
       }),
     onSuccess: async () => { clearForm(); forgetTask(path); await Promise.all([client.invalidateQueries({ queryKey: ["writing-assignments"] }), client.invalidateQueries({ queryKey: ["writing-assignment"] }), client.invalidateQueries({ queryKey: ["dashboard"] })]); navigate("/teacher/writing"); },
@@ -87,7 +87,7 @@ function WritingAssignmentCreatePageContent() {
         <div className="mt-5 space-y-4">
           <Field label="语法检测策略"><select className="field" value={grammarHintMode} onChange={(event) => field("grammarHintMode", event.target.value as WritingGrammarHintMode)}><option value="off">关闭</option><option value="after_submit">首次提交后检测</option></select></Field>
           <Field label="首次提交后修改次数"><input type="number" className="field" min={0} value={revisionLimit} onChange={(event) => field("revisionLimit", Number(event.target.value))} /></Field>
-          <label className="flex cursor-pointer items-center justify-between rounded-[12px] border border-black/[.07] bg-white p-3.5 text-sm"><span>允许截止后补交</span><input type="checkbox" className="h-4 w-4 accent-accent" checked={allowLate} onChange={(event) => field("allowLate", event.target.checked)} /></label>
+          <p className="text-sm text-muted">截止后仍允许补交，学生页面会提示已逾期。如需停止收作业，请在任务列表中关闭任务。</p>
         </div>
         {create.error && <div className="mt-5"><InlineMessage>{create.error.message}</InlineMessage></div>}
         <div className="mt-7 flex justify-end gap-2"><Link to="/teacher/writing"><Button type="button" variant="ghost">取消</Button></Link><Button type="submit" loading={create.isPending} icon={<Send className="h-4 w-4" />} disabled={!title.trim() || !classId || new Date(dueAt) <= new Date(startsAt)}>{assignmentId ? "保存修改" : "创建为草稿"}</Button></div>

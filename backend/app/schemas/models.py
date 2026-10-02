@@ -383,7 +383,7 @@ class WritingAssignmentCreate(BaseModel):
     max_words: int | None = Field(default=None, gt=0, le=100000)
     grammar_hint_mode: WritingGrammarHintMode = WritingGrammarHintMode.OFF
     revision_limit: int = Field(default=1, ge=0, le=20)
-    allow_late_submission: bool = False
+    allow_late_submission: bool = True
 
     @model_validator(mode="after")
     def validate_dates(self):

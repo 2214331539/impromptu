@@ -1,3 +1,4 @@
+import { DeadlineNotice } from "../../components/common/DeadlineNotice";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, AudioLines, MessageSquareText } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
@@ -29,7 +30,7 @@ function HistoryDetail({ session }: { session: TrainingSession }) {
   const recording = session.recordings.find((x) => x.is_selected) || session.recordings[0];
   const speakingSeconds = session.speaking_started_at && session.speaking_finished_at ? (new Date(session.speaking_finished_at).getTime() - new Date(session.speaking_started_at).getTime()) / 1000 : session.task.speaking_seconds;
   return <div className="page-enter mx-auto max-w-4xl"><Link to="/app/history" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted"><ArrowLeft className="h-4 w-4" />返回记录</Link>
-    <ReturnHistory session={session} />
+    <DeadlineNotice dueAt={session.task.due_at} submittedAt={session.submitted_at} active={!!session.submitted_at || session.task.status === "published"} /><ReturnHistory session={session} />
     {session.return_history.length > 0 && session.phase !== "submitted" && <Link className="mb-5 inline-flex text-sm text-accent" to={`/app/training/${session.id}`}>继续修改并重新提交 →</Link>}
     <div className="surface overflow-hidden"><div className="border-b border-black/[.07] p-6 sm:p-8"><div className="flex items-center gap-2"><Badge tone={session.evaluation ? "green" : "blue"}>{session.evaluation ? `${session.evaluation.total_score} 分` : phaseLabel[session.phase]}</Badge><span className="text-xs text-muted">{formatDate(session.submitted_at)}</span></div><h1 className="mt-5 text-2xl font-semibold leading-9">{session.final_topic?.prompt}</h1><p className="mt-3 text-sm text-muted">资料搜集 {formatDuration(session.task.research_seconds)} · 准备整理 {formatDuration(session.task.preparation_seconds)} · 实际表达 {formatDuration(speakingSeconds)}</p></div>
     <div className="grid gap-6 p-6 sm:p-8 lg:grid-cols-2"><section><h2 className="flex items-center gap-2 text-sm font-semibold"><AudioLines className="h-4 w-4" />演讲录音</h2>{recording ? <AudioPlayer className="mt-4" src={recording.stream_url} durationHint={recording.duration_seconds || speakingSeconds} /> : <p className="mt-4 text-sm text-muted">没有可播放的录音。</p>}{recording && <AudioDownloadButton className="mt-3" src={recording.download_url} filename={`speaking-${recording.id}.mp4`} />}<h2 className="mt-8 text-sm font-semibold">准备笔记</h2><div className="mt-3 min-h-32 whitespace-pre-wrap rounded-[12px] bg-black/[.03] p-4 text-sm leading-6 text-muted">{session.note || "未填写笔记"}</div></section>

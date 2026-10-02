@@ -1,3 +1,4 @@
+import { DeadlineNotice } from "../../components/common/DeadlineNotice";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, CalendarClock, FilePenLine, ShieldCheck } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -24,9 +25,10 @@ export function WritingTaskDetailPage() {
   if (query.isLoading) return <LoadingState />;
   if (query.isError || !query.data) return <ErrorState message={query.error?.message} retry={() => query.refetch()} />;
   const assignment = query.data;
-  const expired = (!assignment.allow_late_submission && new Date(assignment.due_at).getTime() < Date.now()) || assignment.status === "closed";
+  const closed = assignment.status !== "published";
   return <div className="page-enter mx-auto max-w-4xl">
     <Link to="/app/writing" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted"><ArrowLeft className="h-4 w-4" />返回写作任务</Link>
+    <DeadlineNotice dueAt={assignment.due_at} active={!closed && assignment.my_submission_status !== "finalized"} />
     <article className="surface overflow-hidden">
       <div className="border-b border-black/[.07] p-6 sm:p-8">
         <div className="flex flex-wrap items-center gap-2"><Badge tone={assignment.status === "published" ? "blue" : "neutral"}>{writingAssignmentStatusLabel[assignment.status]}</Badge><span className="text-xs text-muted">{assignment.class_name}</span></div>
@@ -49,8 +51,8 @@ export function WritingTaskDetailPage() {
         </div>
         {start.error && <p className="mt-5 text-sm text-danger">{start.error.message}</p>}
         <div className="mt-8 flex flex-wrap items-center gap-3">
-          <Button size="lg" loading={start.isPending} disabled={!assignment.my_submission_id && (expired || new Date(assignment.starts_at).getTime() > Date.now())} icon={<FilePenLine className="h-4 w-4" />} onClick={() => assignment.my_submission_id ? navigate(`/app/writing/session/${assignment.my_submission_id}`) : start.mutate()}>
-            {assignment.my_submission_id ? (assignment.my_submission_status === "finalized" ? "查看提交" : "继续写作") : expired ? "任务已截止" : "开始写作"}
+          <Button size="lg" loading={start.isPending} disabled={!assignment.my_submission_id && (closed || new Date(assignment.starts_at).getTime() > Date.now())} icon={<FilePenLine className="h-4 w-4" />} onClick={() => assignment.my_submission_id ? navigate(`/app/writing/session/${assignment.my_submission_id}`) : start.mutate()}>
+            {assignment.my_submission_id ? (assignment.my_submission_status === "finalized" ? "查看提交" : "继续写作") : closed ? "任务已关闭" : "开始写作"}
           </Button>
           {assignment.my_submission_id && <Badge tone="blue">{writingSubmissionStatusLabel[assignment.my_submission_status || "drafting"]}</Badge>}
         </div>

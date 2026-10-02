@@ -1,3 +1,4 @@
+import { DeadlineNotice } from "../../components/common/DeadlineNotice";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, Check, ChevronRight, Dices, Mic2, RefreshCw, Save, Send, ShieldCheck, SkipForward, Square, UploadCloud } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -139,12 +140,13 @@ function TrainingPageContent() {
   if (query.isLoading) return <LoadingState label="正在恢复训练状态" />;
   if (!query.data) return <ErrorState message={query.error?.message} retry={() => query.refetch()} />;
   const session = query.data;
-  const closed = session.task.status !== "published" || new Date(session.task.due_at).getTime() < Date.now();
+  const closed = session.task.status !== "published";
   return <div className="page-enter mx-auto max-w-5xl">
     <TaskLeaveGuard active={session.phase !== "submitted"} scope={`oral:${id}`} onSave={async () => { if (recorder.recording) await finishAndUpload(); }} />
     {cacheError && <InlineMessage>{cacheError}</InlineMessage>}
     {recordingError && <InlineMessage>{recordingError}</InlineMessage>}
-    {closed && session.phase !== "submitted" && <InlineMessage>口语任务已关闭或截止，当前进度与本机草稿仍保留。教师重新开放后可继续。</InlineMessage>}
+    {closed && session.phase !== "submitted" && <InlineMessage>口语任务已关闭，当前进度与本机草稿仍保留。教师重新开放后可继续。</InlineMessage>}
+    <DeadlineNotice dueAt={session.task.due_at} submittedAt={session.submitted_at} active={!closed || session.phase === "submitted"} />
     <ReturnHistory session={session} /><TrainingSteps phase={session.phase} />
     {pendingBlob && !recorder.recording && <div className="surface mb-5 p-5"><h2 className="section-title">已恢复未上传的录音</h2><p className="my-3 text-sm text-muted">中断前已录制的内容保存在本机，可回听并上传。刷新后的麦克风需要重新授权。</p>{localAudio && <AudioPlayer src={localAudio} durationHint={pendingBlob.duration} />}<Button className="mt-4" disabled={closed} loading={upload.isPending} onClick={() => { void finishAndUpload().catch(() => undefined); }}>上传已恢复录音</Button></div>}
     {session.phase === "mic_check" && <MicCheckStage session={session} recorder={recorder} onRefresh={refresh} />}

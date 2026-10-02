@@ -105,8 +105,6 @@ class TrainingService:
         now = utc_now()
         if now < aware(task.starts_at):
             raise AppError("TASK_NOT_STARTED", "任务尚未开始", 400)
-        if now > aware(task.due_at):
-            raise AppError("TASK_EXPIRED", "任务已截止", 400)
         existing = self.sessions.for_task_student(task.id, student.id)
         if existing:
             return self.get_for(student, existing.id)
@@ -500,8 +498,8 @@ class TrainingService:
         if session.phase == SessionPhase.REVIEW:
             if session.return_history:
                 raise AppError("NOT_SUBMITTED", "该作业已退回，请等待学生重新提交", 409)
-            if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
-                raise AppError("TASK_CLOSED", "请先重新开放任务并延长截止时间，再恢复作业", 409)
+            if session.task.status != TaskStatus.PUBLISHED:
+                raise AppError("TASK_CLOSED", "请先重新开放任务，再恢复作业", 409)
             session.return_history = [*session.return_history, {
                 "reason": reason.strip(),
                 "returned_at": utc_now().isoformat(),
@@ -519,8 +517,8 @@ class TrainingService:
             return self._out(self.sessions.get(session_id))
         if session.phase != SessionPhase.SUBMITTED:
             raise AppError("NOT_SUBMITTED", "只能退回已提交的口语作业，请刷新页面", 409)
-        if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
-            raise AppError("TASK_CLOSED", "请先重新开放任务并延长截止时间，再退回作业", 409)
+        if session.task.status != TaskStatus.PUBLISHED:
+            raise AppError("TASK_CLOSED", "请先重新开放任务，再退回作业", 409)
         session.return_history = [*session.return_history, {
             "reason": reason.strip(),
             "returned_at": utc_now().isoformat(),
@@ -575,8 +573,8 @@ class TrainingService:
         if not session or session.student_id != student_id:
             raise AppError("SESSION_NOT_FOUND", "训练记录不存在", 404)
         if session.phase != SessionPhase.SUBMITTED:
-            if session.task.status != TaskStatus.PUBLISHED or utc_now() > aware(session.task.due_at):
-                raise AppError("TASK_CLOSED", "口语任务已关闭或截止，进度已保留", 409)
+            if session.task.status != TaskStatus.PUBLISHED:
+                raise AppError("TASK_CLOSED", "口语任务已关闭，进度已保留", 409)
         return session
 
     def _accessible(self, user: User, session_id: int) -> TrainingSession:

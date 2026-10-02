@@ -68,13 +68,15 @@ def test_return_permissions_and_validation(client, course, session, db_session):
     item.task.status = TaskStatus.CLOSED
     db_session.commit()
     assert client.post(url, headers=course["teacher"], json={"reason": "test"}).status_code == 409
-    item.task.status = TaskStatus.PUBLISHED
-    item.task.due_at = utc_now() - timedelta(seconds=1)
-    db_session.commit()
-    assert client.post(url, headers=course["teacher"], json={"reason": "test"}).status_code == 409
     db_session.refresh(item)
     assert item.phase == SessionPhase.SUBMITTED and item.evaluation is not None
     assert item.return_history == []
+    item.task.status = TaskStatus.PUBLISHED
+    item.task.due_at = utc_now() - timedelta(seconds=1)
+    db_session.commit()
+    returned = client.post(url, headers=course["teacher"], json={"reason": "截止后仍可重交"})
+    assert returned.status_code == 200, returned.text
+    assert returned.json()["rerecords_remaining"] == 1
 
 
 def test_return_original_recording_can_be_resubmitted(client, course, session, db_session):

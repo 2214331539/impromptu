@@ -1,3 +1,4 @@
+import { DeadlineNotice } from "../../components/common/DeadlineNotice";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, RotateCcw, Save, Send } from "lucide-react";
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
@@ -42,7 +43,7 @@ function WritingPageContent() {
     refetchInterval: 15000,
   });
   const assignmentState = assignmentQuery.data;
-  const closed = !!assignmentState && (assignmentState.status !== "published" || (!assignmentState.allow_late_submission && new Date(assignmentState.due_at).getTime() < Date.now()));
+  const closed = !!assignmentState && assignmentState.status !== "published";
   const editable = !!query.data && !!assignmentState && query.data.status !== "finalized" && !closed;
   const draft = useDurableDraft(`writing-draft:${id}`, assignmentState ? query.data?.draft_content : undefined, editable, async (content) => {
     const data = await api<WritingSubmission>(`/writing/submissions/${id}/draft`, { method: "PATCH", body: JSON.stringify({ content }) });
@@ -127,6 +128,7 @@ function WritingPageContent() {
       <div className="text-sm text-muted">{countWords(current)} 字</div>
     </header>
 
+    <DeadlineNotice dueAt={assignment.due_at} submittedAt={submission.status === "finalized" ? submission.final_submitted_at : null} active={!closed || submission.status === "finalized"} />
     <div className="mb-5">
       <InlineMessage type="info">
         本页面不允许复制、剪切、粘贴、右键和拖拽文本；系统会记录你进入、离开页面以及停留时长，供教师查看。
@@ -158,7 +160,7 @@ function WritingPageContent() {
         />
         <div className="mt-5 flex flex-wrap items-center gap-3">
           {!readOnly && <Button size="lg" icon={<Send className="h-4 w-4" />} loading={submit.isPending} disabled={countWords(current) < (assignment?.min_words || 0)} onClick={() => submit.mutate(current)}>{submission.revisions.length ? (submission.remaining_revisions > 0 ? "提交修改" : "已用尽修改次数") : "提交初稿"}</Button>}
-          {readOnly && <p className="text-sm text-muted">{closed ? "任务已关闭或截止，正文已保留。" : submit.isPending ? "正在提交，请稍候。" : "写作已最终提交，不能再修改。"}</p>}
+          {readOnly && <p className="text-sm text-muted">{closed ? "任务已关闭，正文已保留。" : submit.isPending ? "正在提交，请稍候。" : "写作已最终提交，不能再修改。"}</p>}
           {submission.status === "revising" && <span className="text-xs text-muted">剩余修改次数 {submission.remaining_revisions}</span>}
           {draft.error && <p className="text-sm text-danger">{draft.error}</p>}
           {submit.error && <p className="text-sm text-danger">{submit.error.message}</p>}
